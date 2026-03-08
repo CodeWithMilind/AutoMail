@@ -28,11 +28,13 @@ interface Task {
   status: "pending" | "approved" | "completed"
   dueDate: string
   source: string
+  email_id?: string
 }
 
 interface TaskTableProps {
   tasks: Task[]
   onUpdateTask: (id: string, updates: Partial<Task>) => void
+  onDeleteTask: (id: string) => void
 }
 
 const priorityConfig = {
@@ -47,7 +49,10 @@ const statusConfig = {
   completed: { label: "Completed", className: "bg-success/20 text-success border-success/30" },
 }
 
-export function TaskTable({ tasks, onUpdateTask }: TaskTableProps) {
+import { useRouter } from "next/navigation"
+
+export function TaskTable({ tasks, onUpdateTask, onDeleteTask }: TaskTableProps) {
+  const router = useRouter()
   return (
     <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
       <Table>
@@ -74,10 +79,20 @@ export function TaskTable({ tasks, onUpdateTask }: TaskTableProps) {
                     )}>
                       {task.title}
                     </p>
-                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Mail className="h-3 w-3" />
-                      {task.source}
-                    </p>
+                    {task.email_id ? (
+                      <button 
+                        onClick={() => router.push(`/emails?id=${task.email_id}`)}
+                        className="flex items-center gap-1 text-xs text-primary hover:underline"
+                      >
+                        <Mail className="h-3 w-3" />
+                        {task.source}
+                      </button>
+                    ) : (
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Mail className="h-3 w-3" />
+                        {task.source}
+                      </p>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
@@ -147,7 +162,7 @@ export function TaskTable({ tasks, onUpdateTask }: TaskTableProps) {
                           <Calendar className="mr-2 h-4 w-4" />
                           Reschedule
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">
+                        <DropdownMenuItem className="text-destructive" onClick={() => onDeleteTask(task.id)}>
                           <X className="mr-2 h-4 w-4" />
                           Delete
                         </DropdownMenuItem>

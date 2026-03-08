@@ -22,77 +22,159 @@ export function useEmails() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageTokens, setPageTokens] = useState<Record<number, string | null>>({ 1: null });
+  const [hasNextPage, setHasNextPage] = useState(false);
 
-  const transformEmails = useCallback((data: any[]): Email[] => {
-    return data.map((email: any) => ({
-      id: email.id,
-      sender: email.sender.split("<")[0].trim(),
-      senderEmail: email.sender.match(/<(.+)>/)?.[1] || email.sender,
-      subject: email.subject,
-      snippet: email.snippet,
-      date: email.date,
-      aiSummary: email.snippet, // Using snippet as AI Summary for now
+  // Selection/Detail state
+  const [selectedEmailDetail, setSelectedEmailDetail] = useState<Email | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const transformEmailMetadata = useCallback((data: any): Email => {
+    return {
+      id: data.id,
+      sender: data.sender.split("<")[0].trim(),
+      senderEmail: data.sender.match(/<(.+)>/)?.[1] || data.sender,
+      subject: data.subject,
+      snippet: data.snippet,
+      date: data.date,
+      aiSummary: data.snippet,
       tasksExtracted: 0,
       tasks: [],
       isRead: true,
       priority: "medium",
-      fullContent: email.snippet,
-    }));
+      fullContent: data.snippet,
+    };
   }, []);
 
-  const fetchEmails = useCallback(async (pageToken?: string) => {
-    if (pageToken) {
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
+  const fetchEmailMetadata = async (id: string) => {
+    try {
+      const res = await fetch("/api/gmail/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailId: id, mode: "metadata" }),
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
     }
+  };
+
+  const loadPage = useCallback(async (page: number) => {
+    setLoading(true);
     setError(null);
+    setEmails([]); // Clear current emails for progressive load
 
     try {
-      const url = pageToken 
-        ? `/api/gmail/emails?pageToken=${pageToken}`
-        : "/api/gmail/emails";
+      const token = pageTokens[page];
+      const url = token 
+        ? `/api/gmail/emails?idsOnly=true&pageToken=${token}`
+        : `/api/gmail/emails?idsOnly=true`;
         
       const response = await fetch(url);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Unable to fetch Gmail inbox.");
-      }
+      if (!response.ok) throw new Error("Unable to fetch Gmail inbox.");
       
-      const { emails: newEmails, nextPageToken: newToken } = await response.json();
-      const transformed = transformEmails(newEmails);
-
-      if (pageToken) {
-        setEmails((prev) => [...prev, ...transformed]);
+      const { messages, nextPageToken } = await response.json();
+      
+      // Store token for next page
+      if (nextPageToken) {
+        setPageTokens(prev => ({ ...prev, [page + 1]: nextPageToken }));
+        setHasNextPage(true);
       } else {
-        setEmails(transformed);
+        setHasNextPage(false);
       }
-      setNextPageToken(newToken);
+
+      // Progressive loading: fetch metadata for each ID one by one
+      for (const msg of messages) {
+        const metadata = await fetchEmailMetadata(msg.id);
+        if (metadata) {
+          const transformed = transformEmailMetadata(metadata);
+          setEmails(prev => {
+            // Prevent duplicates in state
+            const exists = prev.some(e => e.id === transformed.id);
+            if (exists) return prev;
+            return [...prev, transformed];
+          });
+        }
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
-      setLoadingMore(false);
     }
-  }, [transformEmails]);
+  }, [pageTokens, transformEmailMetadata]);
 
   useEffect(() => {
-    fetchEmails();
-  }, [fetchEmails]);
+    loadPage(1);
+  }, []);
 
-  const loadMore = useCallback(() => {
-    if (nextPageToken && !loadingMore) {
-      fetchEmails(nextPageToken);
+  const nextPage = () => {
+    if (hasNextPage) {
+      const newPage = currentPage + 1;
+      setCurrentPage(newPage);
+      loadPage(newPage);
     }
-  }, [nextPageToken, loadingMore, fetchEmails]);
+  };
+
+  const prevPage = () => {
+    if (currentPage > 1) {
+      const newPage = currentPage - 1;
+      setCurrentPage(newPage);
+      loadPage(newPage);
+    }
+  };
+
+  const fetchEmailDetail = useCallback(async (emailId: string) => {
+    setLoadingDetail(true);
+    try {
+      const response = await fetch("/api/gmail/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailId }),
+      });
+      
+      if (!response.ok) throw new Error("Failed to fetch email details");
+      const data = await response.json();
+      
+      const detailedEmail: Email = {
+        id: data.id,
+        sender: data.sender.split("<")[0].trim(),
+        senderEmail: data.sender.match(/<(.+)>/)?.[1] || data.sender,
+        subject: data.subject,
+        snippet: data.body.substring(0, 100),
+        date: data.date,
+        aiSummary: data.ai_summary,
+        tasksExtracted: data.tasks.length,
+        tasks: data.tasks,
+        isRead: true,
+        priority: data.priority,
+        fullContent: data.body,
+      };
+      
+      setSelectedEmailDetail(detailedEmail);
+      setEmails(prev => prev.map(e => e.id === emailId ? detailedEmail : e));
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setLoadingDetail(false);
+    }
+  }, []);
 
   return { 
     emails, 
     loading, 
-    loadingMore, 
     error, 
-    loadMore, 
-    hasMore: !!nextPageToken 
+    currentPage,
+    nextPage,
+    prevPage,
+    hasNextPage,
+    hasPrevPage: currentPage > 1,
+    fetchEmailDetail,
+    selectedEmailDetail,
+    setSelectedEmailDetail,
+    loadingDetail
   };
 }

@@ -9,8 +9,29 @@ import { cn } from "@/lib/utils"
 import { Loader2, AlertCircle } from "lucide-react"
 
 export default function EmailsPage() {
-  const { emails, loading, loadingMore, error, loadMore, hasMore } = useEmails()
-  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null)
+  const { 
+    emails, 
+    loading, 
+    error, 
+    currentPage,
+    nextPage,
+    prevPage,
+    hasNextPage,
+    hasPrevPage,
+    fetchEmailDetail, 
+    selectedEmailDetail, 
+    setSelectedEmailDetail, 
+    loadingDetail 
+  } = useEmails()
+
+  const handleSelectEmail = (email: Email) => {
+    // Only fetch if we don't already have the full content
+    if (email.fullContent === email.snippet) {
+      fetchEmailDetail(email.id)
+    } else {
+      setSelectedEmailDetail(email)
+    }
+  }
 
   return (
     <div className="flex h-screen flex-col">
@@ -20,7 +41,7 @@ export default function EmailsPage() {
         <div
           className={cn(
             "flex-1 overflow-auto p-8 transition-all duration-300",
-            selectedEmail ? "lg:w-1/2" : "w-full"
+            selectedEmailDetail ? "lg:w-1/2" : "w-full"
           )}
         >
           <div className="mb-6 flex items-center justify-between">
@@ -52,22 +73,33 @@ export default function EmailsPage() {
               </div>
               <EmailTable
                 emails={emails as any}
-                onSelectEmail={setSelectedEmail as any}
-                selectedEmailId={selectedEmail?.id}
-                onLoadMore={loadMore}
-                hasMore={hasMore}
-                loadingMore={loadingMore}
+                onSelectEmail={handleSelectEmail as any}
+                selectedEmailId={selectedEmailDetail?.id}
+                onNextPage={nextPage}
+                onPrevPage={prevPage}
+                hasNextPage={hasNextPage}
+                hasPrevPage={hasPrevPage}
+                currentPage={currentPage}
+                loading={loading}
               />
             </>
           )}
         </div>
 
         {/* Detail Panel */}
-        {selectedEmail && (
-          <div className="hidden w-1/2 lg:block">
+        {selectedEmailDetail && (
+          <div className="hidden w-1/2 lg:block relative">
+            {loadingDetail && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-card/50 backdrop-blur-[1px]">
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <p className="text-sm font-medium">Analyzing with AI...</p>
+                </div>
+              </div>
+            )}
             <EmailDetailPanel
-              email={selectedEmail as any}
-              onClose={() => setSelectedEmail(null)}
+              email={selectedEmailDetail as any}
+              onClose={() => setSelectedEmailDetail(null)}
             />
           </div>
         )}

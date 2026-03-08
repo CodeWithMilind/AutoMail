@@ -1,0 +1,6 @@
+{
+    "llm_provider": "groq",
+    "groq_api_key": "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",
+    "ollama_model": "llama3",
+    "groq_model": "llama-3.1-8b-instant"
+}

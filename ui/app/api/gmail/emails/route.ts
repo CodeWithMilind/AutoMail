@@ -6,6 +6,7 @@ export async function GET(request: Request) {
   const session = await getServerSession(authOptions) as any;
   const { searchParams } = new URL(request.url);
   const pageToken = searchParams.get("pageToken");
+  const fetchIdsOnly = searchParams.get("idsOnly") === "true";
 
   // Check if the user is authenticated
   if (!session) {
@@ -20,73 +21,114 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Fetch latest 25 message IDs with pagination support
-    let listUrl = "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=25";
-    if (pageToken) {
-      listUrl += `&pageToken=${pageToken}`;
+    if (fetchIdsOnly) {
+      // Just fetch message IDs and nextPageToken for progressive loading
+      let listUrl = "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10";
+      if (pageToken) {
+        listUrl += `&pageToken=${pageToken}`;
+      }
+
+      const listResponse = await fetch(listUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!listResponse.ok) {
+        const errorData = await listResponse.json();
+        throw new Error(errorData.error?.message || "Failed to fetch message list");
+      }
+
+      const listData = await listResponse.json();
+      return NextResponse.json({
+        messages: listData.messages || [],
+        nextPageToken: listData.nextPageToken || null,
+      });
     }
 
-    const listResponse = await fetch(listUrl, {
+    // Otherwise, fetch full list metadata (fallback or batch)
+    const pythonBackendUrl = new URL("http://localhost:8000/gmail/emails");
+    if (pageToken) {
+      pythonBackendUrl.searchParams.set("pageToken", pageToken);
+    }
+
+    const response = await fetch(pythonBackendUrl.toString(), {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
     });
 
-    if (!listResponse.ok) {
-      const errorData = await listResponse.json();
-      throw new Error(errorData.error?.message || "Failed to fetch message list");
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to fetch emails from Python backend");
     }
 
-    const listData = await listResponse.json();
-    const messages = listData.messages || [];
-    const nextPageToken = listData.nextPageToken || null;
-
-    // 2. For each message ID fetch metadata
-    const emailDetails = await Promise.all(
-      messages.map(async (msg: any) => {
-        try {
-          const detailResponse = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata`,
-            {
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-              },
-            }
-          );
-
-          if (!detailResponse.ok) return null;
-
-          const detailData = await detailResponse.json();
-          const headers = detailData.payload.headers;
-
-          const sender = headers.find((h: any) => h.name === "From")?.value || "Unknown Sender";
-          const subject = headers.find((h: any) => h.name === "Subject")?.value || "No Subject";
-          const dateHeader = headers.find((h: any) => h.name === "Date")?.value;
-          const date = dateHeader ? new Date(dateHeader).toISOString() : new Date().toISOString();
-
-          return {
-            id: msg.id,
-            sender,
-            subject,
-            snippet: detailData.snippet,
-            date,
-          };
-        } catch (error) {
-          console.error(`Error fetching message ${msg.id}:`, error);
-          return null;
-        }
-      })
-    );
-
-    // Return the response with emails and nextPageToken
-    return NextResponse.json({
-      emails: emailDetails.filter((email) => email !== null),
-      nextPageToken,
-    });
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error: any) {
     console.error("Gmail API Error:", error);
     return NextResponse.json(
       { error: error.message || "Unable to fetch Gmail inbox." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  const session = await getServerSession(authOptions) as any;
+  const { emailId, mode } = await request.json();
+
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const accessToken = session.accessToken;
+  if (!accessToken) {
+    return NextResponse.json({ error: "Missing Gmail access token" }, { status: 403 });
+  }
+
+  try {
+    if (mode === "metadata") {
+      // Fetch only metadata for progressive loading
+      const detailUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${emailId}?format=metadata`;
+      const response = await fetch(detailUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!response.ok) throw new Error("Failed to fetch metadata");
+      const data = await response.json();
+      const headers = data.payload.headers;
+      
+      return NextResponse.json({
+        id: emailId,
+        sender: headers.find((h: any) => h.name === "From")?.value || "Unknown Sender",
+        subject: headers.find((h: any) => h.name === "Subject")?.value || "No Subject",
+        date: headers.find((h: any) => h.name === "Date")?.value || new Date().toISOString(),
+        snippet: data.snippet || "",
+      });
+    }
+
+    // Default: Fetch full details + AI analysis
+    const pythonBackendUrl = `http://localhost:8000/gmail/emails/${emailId}`;
+    const response = await fetch(pythonBackendUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to fetch email details from Python backend");
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error: any) {
+    console.error("Gmail Detail Error:", error);
+    return NextResponse.json(
+      { error: error.message || "Unable to fetch email details." },
       { status: 500 }
     );
   }
