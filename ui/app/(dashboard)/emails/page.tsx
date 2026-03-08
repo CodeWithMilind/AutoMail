@@ -1,166 +1,93 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Header } from "@/components/dashboard/header"
-import { EmailTable } from "@/components/dashboard/email-table"
-import { EmailDetailPanel } from "@/components/dashboard/email-detail-panel"
-import { useEmails, type Email } from "@/hooks/use-emails"
-import { cn } from "@/lib/utils"
-import { Loader2, AlertCircle, Sparkles } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { useToast } from "@/components/ui/use-toast"
+import { EmailList } from "@/components/EmailList"
+import { Loader2, Mail, AlertCircle } from "lucide-react"
 
 export default function EmailsPage() {
-  const { 
-    emails, 
-    loading, 
-    error, 
-    currentPage,
-    nextPage,
-    prevPage,
-    hasNextPage,
-    hasPrevPage,
-    fetchEmailDetail, 
-    selectedEmailDetail, 
-    setSelectedEmailDetail, 
-    loadingDetail 
-  } = useEmails()
+  const [emails, setEmails] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const [analyzing, setAnalyzing] = useState(false)
-  const { toast } = useToast()
-
-  const handleAnalyzeEmails = async () => {
-    const unanalyzedIds = emails
-      .filter(e => !(e as any).is_analyzed)
-      .map(e => e.id)
-    
-    if (unanalyzedIds.length === 0) {
-      toast({
-        title: "All analyzed",
-        description: "All emails on this page have already been analyzed.",
-      })
-      return
-    }
-
-    setAnalyzing(true)
-    try {
-      const res = await fetch("/api/gmail/emails/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email_ids: unanalyzedIds }),
-      })
-      
-      if (res.ok) {
-        toast({
-          title: "Analysis complete",
-          description: `Successfully analyzed ${unanalyzedIds.length} emails.`,
-        })
-        // Reload page to show results
-        window.location.reload()
-      } else {
-        throw new Error("Analysis failed")
+  useEffect(() => {
+    const loadEmails = async () => {
+      try {
+        setLoading(true)
+        const res = await fetch("/api/emails", { cache: 'no-store' })
+        
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`)
+        }
+        
+        const data = await res.json()
+        setEmails(Array.isArray(data) ? data : [])
+        setError(null)
+      } catch (err: any) {
+        console.error("Failed to load emails:", err)
+        setError(err.message || "An unexpected error occurred while loading emails.")
+      } finally {
+        setLoading(false)
       }
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: "Failed to run AI analysis. Please try again.",
-        variant: "destructive",
-      })
-    } finally {
-      setAnalyzing(false)
     }
-  }
 
-  const handleSelectEmail = (email: Email) => {
-    // Only fetch if we don't already have the full content
-    if (email.fullContent === email.snippet) {
-      fetchEmailDetail(email.id)
-    } else {
-      setSelectedEmailDetail(email)
-    }
+    loadEmails()
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex flex-col min-h-screen">
+        <Header title="Emails" />
+        <div className="flex flex-1 items-center justify-center h-[400px]">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground font-medium">Loading emails...</p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex flex-col min-h-screen">
       <Header title="Emails" />
-      <div className="flex flex-1 overflow-hidden">
-        {/* Email List */}
-        <div
-          className={cn(
-            "flex-1 overflow-auto p-8 transition-all duration-300",
-            selectedEmailDetail ? "lg:w-1/2" : "w-full"
-          )}
-        >
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <h2 className="text-xl font-bold tracking-tight text-foreground">Live Gmail Inbox</h2>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 hover:text-primary transition-all gap-2"
-                onClick={handleAnalyzeEmails}
-                disabled={analyzing || loading || emails.length === 0}
-              >
-                {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                Analyze Emails with AI
-              </Button>
-            </div>
-            {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-          </div>
-
-          {loading ? (
-            <div className="flex h-64 items-center justify-center">
-              <div className="flex flex-col items-center gap-2">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Fetching your emails...</p>
-              </div>
-            </div>
-          ) : error ? (
-            <div className="flex h-64 items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 p-8 text-center">
-              <div className="flex flex-col items-center gap-2">
-                <AlertCircle className="h-8 w-8 text-destructive" />
-                <p className="text-sm font-medium text-destructive">Error: {error}</p>
-                <p className="text-xs text-muted-foreground mt-1">Please check your Gmail permissions or try signing in again.</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="mb-4">
-                <p className="text-sm text-muted-foreground">
-                  Showing {emails.length} latest emails
-                </p>
-              </div>
-              <EmailTable
-                emails={emails as any}
-                onSelectEmail={handleSelectEmail as any}
-                selectedEmailId={selectedEmailDetail?.id}
-                onNextPage={nextPage}
-                onPrevPage={prevPage}
-                hasNextPage={hasNextPage}
-                hasPrevPage={hasPrevPage}
-                currentPage={currentPage}
-                loading={loading}
-              />
-            </>
-          )}
+      <div className="flex-1 p-8 space-y-6">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Email Inbox</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage your synchronized Gmail messages and AI analysis insights.
+          </p>
         </div>
 
-        {/* Detail Panel */}
-        {selectedEmailDetail && (
-          <div className="hidden w-1/2 lg:block relative">
-            {loadingDetail && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-card/50 backdrop-blur-[1px]">
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  <p className="text-sm font-medium">Analyzing with AI...</p>
-                </div>
-              </div>
-            )}
-            <EmailDetailPanel
-              email={selectedEmailDetail as any}
-              onClose={() => setSelectedEmailDetail(null)}
-            />
+        {error ? (
+          <div className="flex h-64 items-center justify-center rounded-xl border border-destructive/20 bg-destructive/5 p-8 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <AlertCircle className="h-8 w-8 text-destructive" />
+              <p className="text-sm font-semibold text-destructive">Error Loading Emails</p>
+              <p className="text-xs text-destructive/80">{error}</p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-destructive text-destructive-foreground rounded-md text-xs font-medium hover:bg-destructive/90 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
           </div>
+        ) : emails.length === 0 ? (
+          <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <Mail className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <h3 className="mt-4 text-sm font-semibold text-foreground">No emails found</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Your inbox is empty or hasn't been synchronized yet.</p>
+          </div>
+        ) : (
+          <EmailList 
+            emails={emails} 
+            onSelectEmail={(email) => {
+              window.location.href = `/inbox?id=${email.id}`
+            }} 
+          />
         )}
       </div>
     </div>

@@ -21,8 +21,34 @@ class AnalyzedEmail(Base):
     subject = Column(String)
     summary = Column(Text, nullable=True)
     priority = Column(String, default="medium")
+    sentiment = Column(String, default="neutral")
+    key_points = Column(Text, nullable=True) # JSON serialized list
     meeting_detected = Column(Boolean, default=False)
+    requires_followup = Column(Boolean, default=False)
+    followup_deadline = Column(String, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+# Meeting Model
+class Meeting(Base):
+    __tablename__ = "meetings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email_id = Column(String, index=True)
+    title = Column(String)
+    datetime = Column(String) # Store as string for flexibility from AI
+    location = Column(String, nullable=True)
+    participants = Column(Text, nullable=True) # JSON serialized list
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+# Follow-up Model
+class Followup(Base):
+    __tablename__ = "followups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email_id = Column(String, index=True)
+    reminder_time = Column(DateTime)
+    status = Column(String, default="pending") # pending, completed
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 # Task Model (Updated)
 class Task(Base):
@@ -96,3 +122,25 @@ def save_analyzed_email(db, email_data):
 
 def get_analyzed_emails(db, limit=10):
     return db.query(AnalyzedEmail).order_by(AnalyzedEmail.timestamp.desc()).limit(limit).all()
+
+# CRUD for Meetings
+def create_meeting(db, meeting_data):
+    db_meeting = Meeting(**meeting_data)
+    db.add(db_meeting)
+    db.commit()
+    db.refresh(db_meeting)
+    return db_meeting
+
+def get_meetings(db):
+    return db.query(Meeting).all()
+
+# CRUD for Followups
+def create_followup(db, followup_data):
+    db_followup = Followup(**followup_data)
+    db.add(db_followup)
+    db.commit()
+    db.refresh(db_followup)
+    return db_followup
+
+def get_pending_followups(db):
+    return db.query(Followup).filter(Followup.status == "pending").all()

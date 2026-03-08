@@ -10,11 +10,16 @@ export interface Email {
   snippet: string;
   date: string;
   aiSummary: string;
+  sentiment?: string;
+  keyPoints?: string[];
   tasksExtracted: number;
-  tasks: string[];
+  tasks: any[];
   isRead: boolean;
   priority: "high" | "medium" | "low";
   fullContent: string;
+  isMeetingRelated?: boolean;
+  requiresFollowup?: boolean;
+  followupDeadline?: string;
 }
 
 function getHeader(headers: any[], name: string) {
@@ -153,9 +158,9 @@ export function useEmails() {
       const data = await response.json();
       
       const headers = data.payload?.headers || [];
-      const from = getHeader(headers, "From") || data.sender || "";
-      const subject = getHeader(headers, "Subject") || data.subject || "";
-      const date = getHeader(headers, "Date") || data.date || "";
+      const from = getHeader(headers, "From");
+      const subject = getHeader(headers, "Subject");
+      const date = getHeader(headers, "Date");
 
       const senderName = from?.split("<")[0]?.replace(/"/g, "").trim() || "Unknown Sender";
       const senderEmail = from?.match(/<(.+)>/)?.[1] || from || "Unknown Email";
@@ -165,14 +170,20 @@ export function useEmails() {
         sender: senderName,
         senderEmail: senderEmail,
         subject: subject || "No Subject",
-        snippet: data.body?.substring(0, 100) || data.snippet || "",
+        snippet: data.snippet || "",
+        body: data.body || data.snippet || "",
         date: date || new Date().toISOString(),
         aiSummary: data.ai_summary || data.snippet || "",
+        sentiment: data.sentiment,
+        keyPoints: data.key_points,
         tasksExtracted: data.tasks?.length || 0,
         tasks: data.tasks || [],
         isRead: true,
         priority: data.priority || "medium",
         fullContent: data.body || data.snippet || "",
+        isMeetingRelated: data.is_meeting_related,
+        requiresFollowup: data.requires_followup,
+        followupDeadline: data.followup_deadline,
       };
       
       setSelectedEmailDetail(detailedEmail);

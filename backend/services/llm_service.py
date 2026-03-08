@@ -34,10 +34,14 @@ def ollama_analyze(text, model="llama3"):
     prompt = f"""
     Analyze the following email and return a JSON object with:
     1. "summary": A 2-sentence concise summary.
-    2. "tasks": A list of extracted actionable tasks or an empty list if none.
-    3. "priority": Either "low", "medium", or "high" based on urgency.
-    4. "meeting_detected": Boolean (true if a meeting request, calendar invite, or scheduling discussion is found).
-    5. "due_date": A string in YYYY-MM-DD format if a specific deadline is mentioned, else null.
+    2. "tasks": A list of extracted actionable tasks. Each task should be: {{"title": "", "description": "", "due_date": "YYYY-MM-DD or null", "priority": "low|medium|high"}}
+    3. "priority": Determine priority (high|medium|low) based on sender importance, deadlines, meeting mentions, and action requests.
+    4. "sentiment": Either "positive", "neutral", or "negative".
+    5. "key_points": A list of strings representing main points.
+    6. "is_meeting_related": Boolean (true if a meeting request, calendar invite, or scheduling discussion is found).
+    7. "meeting_info": If is_meeting_related is true, provide: {{"title": "", "time": "", "location": "", "participants": []}}.
+    8. "requires_followup": Boolean (true if the email asks a question or requires a response).
+    9. "followup_deadline": A relative time string like "24 hours", "2 days", etc., if a follow-up is needed.
 
     Email:
     {clean_text}
@@ -82,11 +86,27 @@ def groq_analyze(text, api_key, model="llama3-70b-8192"):
                     "role": "user",
                     "content": f"""Analyze this email and return JSON only:
 {{
-  "summary": "...",
-  "tasks": [],
-  "priority": "low | medium | high",
-  "meeting_detected": true/false,
-  "due_date": "YYYY-MM-DD or null"
+  "summary": "A 2-sentence concise summary.",
+  "tasks": [
+    {{
+      "title": "Task name",
+      "description": "Short description",
+      "due_date": "YYYY-MM-DD or null",
+      "priority": "low | medium | high"
+    }}
+  ],
+  "priority": "low | medium | high (based on importance, deadlines, meeting mentions)",
+  "sentiment": "positive | neutral | negative",
+  "key_points": ["Point 1", "Point 2"],
+  "is_meeting_related": true/false,
+  "meeting_info": {{
+    "title": "Meeting title",
+    "time": "Tomorrow 3 PM or YYYY-MM-DD HH:MM",
+    "location": "Zoom/Office",
+    "participants": ["name@email.com"]
+  }},
+  "requires_followup": true/false,
+  "followup_deadline": "24 hours | 2 days | null"
 }}
 
 Email:
@@ -127,8 +147,12 @@ def generate_ai_analysis(text):
             "summary": "Analysis unavailable. Please check your API key and provider settings.",
             "tasks": [],
             "priority": "medium",
-            "meeting_detected": False,
-            "due_date": None
+            "sentiment": "neutral",
+            "key_points": [],
+            "is_meeting_related": False,
+            "meeting_info": None,
+            "requires_followup": False,
+            "followup_deadline": None
         }
     
     return analysis

@@ -1,4 +1,5 @@
 import os
+import json
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -6,7 +7,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 from ai_engine import generate_email_reply, generate_ai_summary
 from services.llm_service import generate_ai_analysis, get_settings, save_settings
-from services.db_service import get_db, create_task, get_tasks, update_task, delete_task, save_analyzed_email, AnalyzedEmail, Task
+from services.db_service import get_db, create_task, get_tasks, update_task, delete_task, save_analyzed_email, AnalyzedEmail, Task, create_meeting, create_followup, get_meetings, get_pending_followups
 from services.gmail_service import fetch_latest_emails
 from sqlalchemy.orm import Session
 from fastapi import Depends, BackgroundTasks
@@ -78,27 +79,62 @@ def process_email_analysis(email_id: str, access_token: str, db: Session):
             "subject": subject,
             "summary": analysis.get("summary", snippet),
             "priority": analysis.get("priority", "medium"),
-            "meeting_detected": analysis.get("meeting_detected", False),
+            "sentiment": analysis.get("sentiment", "neutral"),
+            "key_points": json.dumps(analysis.get("key_points", [])),
+            "meeting_detected": analysis.get("is_meeting_related", False),
+            "requires_followup": analysis.get("requires_followup", False),
+            "followup_deadline": analysis.get("followup_deadline"),
             "timestamp": datetime.utcnow()
         })
         
+        # Save Meeting if detected
+        if analysis.get("is_meeting_related"):
+            meeting_info = analysis.get("meeting_info", {})
+            create_meeting(db, {
+                "email_id": email_id,
+                "title": meeting_info.get("title") or f"Meeting: {subject}",
+                "datetime": meeting_info.get("time"),
+                "location": meeting_info.get("location"),
+                "participants": json.dumps(meeting_info.get("participants", []))
+            })
+
+        # Save Follow-up if detected
+        if analysis.get("requires_followup"):
+            deadline_str = analysis.get("followup_deadline", "24 hours")
+            # Basic parsing for relative time
+            hours = 24
+            if "hour" in deadline_str:
+                try: hours = int(deadline_str.split()[0])
+                except: pass
+            elif "day" in deadline_str:
+                try: hours = int(deadline_str.split()[0]) * 24
+                except: pass
+            
+            create_followup(db, {
+                "email_id": email_id,
+                "reminder_time": datetime.utcnow() + timedelta(hours=hours),
+                "status": "pending"
+            })
+        
         # Save Tasks
         extracted_tasks = analysis.get("tasks", [])
-        due_date_str = analysis.get("due_date")
-        due_date = None
-        if due_date_str:
-            try:
-                due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
-            except:
-                pass
-
         for task_info in extracted_tasks:
             title = task_info.get("title") if isinstance(task_info, dict) else str(task_info)
+            description = task_info.get("description", "") if isinstance(task_info, dict) else ""
             priority = task_info.get("priority", analysis.get("priority", "medium")) if isinstance(task_info, dict) else analysis.get("priority", "medium")
+            due_date_str = task_info.get("due_date")
+            
+            due_date = None
+            if due_date_str:
+                try:
+                    due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
+                except:
+                    pass
             
             if title:
                 create_task(db, {
                     "title": title,
+                    "description": description,
                     "email_id": email_id,
                     "email_sender": sender,
                     "priority": priority,
@@ -208,6 +244,69 @@ async def remove_task(task_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Task not found")
     return {"message": "Task deleted"}
 
+class AnalyzeEmailRequest(BaseModel):
+    email_id: str
+    subject: str = None
+    body: str = None
+    sender: str = None
+
+@app.post("/analyze-email")
+async def analyze_single_email(request_data: AnalyzeEmailRequest, db: Session = Depends(get_db)):
+    """
+    Manually trigger AI analysis for a single email.
+    """
+    email_id = request_data.email_id
+    
+    # Check cache
+    analyzed = db.query(AnalyzedEmail).filter(AnalyzedEmail.id == email_id).first()
+    if analyzed:
+        return {"status": "cached", "id": email_id}
+    
+    # If content not provided, we might need to fetch it, but user prompt implies sending it
+    if not request_data.body:
+        raise HTTPException(status_code=400, detail="Email body is required for analysis")
+    
+    analysis = generate_ai_analysis(request_data.body)
+    
+    # Save results
+    save_analyzed_email(db, {
+        "id": email_id,
+        "sender": request_data.sender or "Unknown Sender",
+        "subject": request_data.subject or "No Subject",
+        "summary": analysis.get("summary", ""),
+        "priority": analysis.get("priority", "medium"),
+        "sentiment": analysis.get("sentiment", "neutral"),
+        "key_points": json.dumps(analysis.get("key_points", [])),
+        "meeting_detected": analysis.get("is_meeting_related", False),
+        "timestamp": datetime.utcnow()
+    })
+    
+    # Save tasks
+    extracted_tasks = analysis.get("tasks", [])
+    for task_info in extracted_tasks:
+        title = task_info.get("title") if isinstance(task_info, dict) else str(task_info)
+        description = task_info.get("description", "") if isinstance(task_info, dict) else ""
+        priority = task_info.get("priority", analysis.get("priority", "medium")) if isinstance(task_info, dict) else analysis.get("priority", "medium")
+        due_date_str = task_info.get("due_date") if isinstance(task_info, dict) else analysis.get("meeting_date")
+        
+        due_date = None
+        if due_date_str:
+            try: due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
+            except: pass
+
+        if title:
+            create_task(db, {
+                "title": title,
+                "description": description,
+                "email_id": email_id,
+                "email_sender": request_data.sender,
+                "priority": priority,
+                "status": "pending",
+                "due_date": due_date
+            })
+            
+    return {"status": "success", "id": email_id, "analysis": analysis}
+
 class AnalyzeEmailsRequest(BaseModel):
     email_ids: list[str]
 
@@ -291,48 +390,75 @@ async def get_ai_insights(db: Session = Depends(get_db)):
             "time": "Just now"
         })
     
-    # 2. Daily task summary
+    # 2. Follow-up reminders
+    pending_followups = db.query(Followup).filter(Followup.status == "pending").all()
+    for fu in pending_followups:
+        # Get email subject for context
+        analyzed = db.query(AnalyzedEmail).filter(AnalyzedEmail.id == fu.email_id).first()
+        if analyzed:
+            insights.append({
+                "type": "task",
+                "message": f"Follow-up needed for: {analyzed.subject}",
+                "time": "Reminder"
+            })
+    
+    # 3. Meetings detected
+    recent_meetings = db.query(Meeting).order_by(Meeting.created_at.desc()).limit(3).all()
+    for m in recent_meetings:
+        insights.append({
+            "type": "calendar",
+            "message": f"New Meeting: {m.title} at {m.datetime}",
+            "time": "Scheduled"
+        })
+    
+    # 4. Daily task summary
     today_start = datetime.combine(datetime.utcnow().date(), datetime.min.time())
     tasks_today = db.query(Task).filter(Task.created_at >= today_start).count()
     if tasks_today > 0:
         insights.append({
-            "type": "task",
+            "type": "success",
             "message": f"AI detected {tasks_today} actionable tasks today",
             "time": "Updated"
         })
         
-    # 3. Calendar/Meeting insights (Real detection)
-    recent_meetings = db.query(AnalyzedEmail).filter(AnalyzedEmail.meeting_detected == True).order_by(AnalyzedEmail.timestamp.desc()).first()
-    if recent_meetings:
-        insights.append({
-            "type": "calendar",
-            "message": f"Meeting request detected from {recent_meetings.sender}",
-            "time": "Recent"
-        })
-    
-    # 4. Deadline check
-    upcoming_tasks = db.query(Task).filter(Task.status != "completed", Task.due_date != None).order_by(Task.due_date.asc()).limit(1).all()
-    if upcoming_tasks:
-        days_left = (upcoming_tasks[0].due_date.date() - datetime.utcnow().date()).days
-        if days_left >= 0:
-            insights.append({
-                "type": "warning",
-                "message": f"Deadline approaching for '{upcoming_tasks[0].title}' in {days_left} days",
-                "time": "Check task"
-            })
-        
     return insights
 
+@app.get("/api/meetings")
+async def fetch_meetings(db: Session = Depends(get_db)):
+    return get_meetings(db)
+
+@app.get("/api/followups")
+async def fetch_followups(db: Session = Depends(get_db)):
+    return get_pending_followups(db)
+
 @app.get("/api/emails")
-async def get_emails_api(limit: int = 10):
+async def get_emails_api(limit: int = 10, db: Session = Depends(get_db)):
     """
-    Fetch latest emails from Gmail using the robust gmail_service.
+    Fetch latest emails from Gmail and enrich with analysis data from DB.
     """
     emails, error = fetch_latest_emails(limit=limit)
     if error == "gmail_auth_required":
         return {"error": "gmail_auth_required"}
     if error:
         raise HTTPException(status_code=500, detail=error)
+    
+    # Enrich with DB data
+    for email in emails:
+        analyzed = db.query(AnalyzedEmail).filter(AnalyzedEmail.id == email["id"]).first()
+        if analyzed:
+            email["priority"] = analyzed.priority
+            email["is_meeting_related"] = analyzed.meeting_detected
+            email["tasks_extracted"] = db.query(Task).filter(Task.email_id == email["id"]).count()
+            email["ai_summary"] = analyzed.summary
+        else:
+            email["priority"] = "medium"
+            email["tasks_extracted"] = 0
+            email["ai_summary"] = email.get("snippet", "")
+            
+    # Sort: High priority first
+    priority_map = {"high": 0, "medium": 1, "low": 2}
+    emails.sort(key=lambda x: priority_map.get(x.get("priority", "medium"), 1))
+    
     return emails
 
 @app.get("/auth/gmail/login")
@@ -464,6 +590,8 @@ async def get_email_detail(email_id: str, request: Request, db: Session = Depend
         if analyzed:
             summary = analyzed.summary
             priority = analyzed.priority
+            sentiment = analyzed.sentiment
+            key_points = json.loads(analyzed.key_points) if analyzed.key_points else []
             tasks_list = db.query(Task).filter(Task.email_id == email_id).all()
             return {
                 "id": email_id,
@@ -472,8 +600,11 @@ async def get_email_detail(email_id: str, request: Request, db: Session = Depend
                 "date": date_str,
                 "body": body,
                 "ai_summary": summary,
-                "tasks": [{"title": t.title, "priority": t.priority} for t in tasks_list],
-                "priority": priority
+                "sentiment": sentiment,
+                "key_points": key_points,
+                "tasks": [{"title": t.title, "priority": t.priority, "description": t.description, "due_date": t.due_date} for t in tasks_list],
+                "priority": priority,
+                "is_meeting_related": analyzed.meeting_detected
             }
         
         # If not pre-analyzed, analyze now
@@ -486,24 +617,29 @@ async def get_email_detail(email_id: str, request: Request, db: Session = Depend
             "subject": subject,
             "summary": analysis.get("summary", snippet),
             "priority": analysis.get("priority", "medium"),
-            "meeting_detected": analysis.get("meeting_detected", False),
+            "sentiment": analysis.get("sentiment", "neutral"),
+            "key_points": json.dumps(analysis.get("key_points", [])),
+            "meeting_detected": analysis.get("is_meeting_related", False),
             "timestamp": datetime.utcnow()
         })
         
         # Save tasks
         extracted_tasks = analysis.get("tasks", [])
-        due_date_str = analysis.get("due_date")
-        due_date = None
-        if due_date_str:
-            try: due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
-            except: pass
-
         for task_info in extracted_tasks:
             title = task_info.get("title") if isinstance(task_info, dict) else str(task_info)
+            description = task_info.get("description", "") if isinstance(task_info, dict) else ""
             priority = task_info.get("priority", analysis.get("priority", "medium")) if isinstance(task_info, dict) else analysis.get("priority", "medium")
+            due_date_str = task_info.get("due_date") if isinstance(task_info, dict) else analysis.get("meeting_date")
+            
+            due_date = None
+            if due_date_str:
+                try: due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
+                except: pass
+
             if title:
                 create_task(db, {
                     "title": title,
+                    "description": description,
                     "email_id": email_id,
                     "email_sender": sender,
                     "priority": priority,
@@ -518,8 +654,11 @@ async def get_email_detail(email_id: str, request: Request, db: Session = Depend
             "date": date_str,
             "body": body,
             "ai_summary": analysis.get("summary", snippet),
-            "tasks": extracted_tasks,
-            "priority": analysis.get("priority", "medium")
+            "sentiment": analysis.get("sentiment", "neutral"),
+            "key_points": analysis.get("key_points", []),
+            "tasks": analysis.get("tasks", []),
+            "priority": analysis.get("priority", "medium"),
+            "is_meeting_related": analysis.get("is_meeting_related", False)
         }
         
     except Exception as e:
