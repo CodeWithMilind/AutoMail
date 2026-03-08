@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -12,7 +12,19 @@ engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Task Model
+# Email Model (New)
+class AnalyzedEmail(Base):
+    __tablename__ = "analyzed_emails"
+
+    id = Column(String, primary_key=True) # Gmail ID
+    sender = Column(String, index=True)
+    subject = Column(String)
+    summary = Column(Text, nullable=True)
+    priority = Column(String, default="medium")
+    meeting_detected = Column(Boolean, default=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+# Task Model (Updated)
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -36,7 +48,7 @@ def get_db():
     finally:
         db.close()
 
-# CRUD Operations
+# CRUD Operations for Tasks
 def create_task(db, task_data):
     db_task = Task(**task_data)
     db.add(db_task)
@@ -66,3 +78,21 @@ def delete_task(db, task_id):
         db.commit()
         return True
     return False
+
+# CRUD Operations for Emails (New)
+def save_analyzed_email(db, email_data):
+    db_email = db.query(AnalyzedEmail).filter(AnalyzedEmail.id == email_data["id"]).first()
+    if db_email:
+        # Update existing
+        for key, value in email_data.items():
+            setattr(db_email, key, value)
+    else:
+        # Create new
+        db_email = AnalyzedEmail(**email_data)
+        db.add(db_email)
+    db.commit()
+    db.refresh(db_email)
+    return db_email
+
+def get_analyzed_emails(db, limit=10):
+    return db.query(AnalyzedEmail).order_by(AnalyzedEmail.timestamp.desc()).limit(limit).all()

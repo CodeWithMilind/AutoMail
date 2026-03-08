@@ -6,7 +6,9 @@ import { EmailTable } from "@/components/dashboard/email-table"
 import { EmailDetailPanel } from "@/components/dashboard/email-detail-panel"
 import { useEmails, type Email } from "@/hooks/use-emails"
 import { cn } from "@/lib/utils"
-import { Loader2, AlertCircle } from "lucide-react"
+import { Loader2, AlertCircle, Sparkles } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/use-toast"
 
 export default function EmailsPage() {
   const { 
@@ -23,6 +25,51 @@ export default function EmailsPage() {
     setSelectedEmailDetail, 
     loadingDetail 
   } = useEmails()
+
+  const [analyzing, setAnalyzing] = useState(false)
+  const { toast } = useToast()
+
+  const handleAnalyzeEmails = async () => {
+    const unanalyzedIds = emails
+      .filter(e => !(e as any).is_analyzed)
+      .map(e => e.id)
+    
+    if (unanalyzedIds.length === 0) {
+      toast({
+        title: "All analyzed",
+        description: "All emails on this page have already been analyzed.",
+      })
+      return
+    }
+
+    setAnalyzing(true)
+    try {
+      const res = await fetch("/api/gmail/emails/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email_ids: unanalyzedIds }),
+      })
+      
+      if (res.ok) {
+        toast({
+          title: "Analysis complete",
+          description: `Successfully analyzed ${unanalyzedIds.length} emails.`,
+        })
+        // Reload page to show results
+        window.location.reload()
+      } else {
+        throw new Error("Analysis failed")
+      }
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to run AI analysis. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setAnalyzing(false)
+    }
+  }
 
   const handleSelectEmail = (email: Email) => {
     // Only fetch if we don't already have the full content
@@ -45,7 +92,19 @@ export default function EmailsPage() {
           )}
         >
           <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-tight text-foreground">Live Gmail Inbox</h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-xl font-bold tracking-tight text-foreground">Live Gmail Inbox</h2>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 hover:text-primary transition-all gap-2"
+                onClick={handleAnalyzeEmails}
+                disabled={analyzing || loading || emails.length === 0}
+              >
+                {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Analyze Emails with AI
+              </Button>
+            </div>
             {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
 

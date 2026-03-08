@@ -1,11 +1,11 @@
 "use client"
 
+import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/dashboard/header"
 import { StatCard } from "@/components/dashboard/stat-card"
 import { AIInsightPanel } from "@/components/dashboard/ai-insight-panel"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Mail, CheckSquare, AlertTriangle, Calendar } from "lucide-react"
-import { aiInsights, weeklyStats, tasksByPriority } from "@/lib/mock-data"
+import { Mail, CheckSquare, AlertTriangle, Calendar, Loader2 } from "lucide-react"
 import {
   BarChart,
   Bar,
@@ -13,20 +13,54 @@ import {
   YAxis,
   CartesianGrid,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
   Tooltip,
   Legend,
 } from "recharts"
 
-const chartData = weeklyStats.days.map((day, index) => ({
-  day,
-  emails: weeklyStats.emailsProcessed[index],
-  tasks: weeklyStats.tasksCreated[index],
-}))
-
 export default function DashboardPage() {
+  const [stats, setStats] = useState<any>(null)
+  const [insights, setInsights] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [statsRes, insightsRes] = await Promise.all([
+        fetch("/api/dashboard"),
+        fetch("/api/ai-insights")
+      ])
+      
+      if (statsRes.ok) {
+        const statsData = await statsRes.json()
+        setStats(statsData)
+      }
+      
+      if (insightsRes.ok) {
+        const insightsData = await insightsRes.json()
+        setInsights(insightsData)
+      }
+    } catch (err) {
+      console.error("Failed to fetch dashboard data:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+    // Auto refresh every 30 seconds
+    const interval = setInterval(fetchData, 30000)
+    return () => clearInterval(interval)
+  }, [fetchData])
+
+  if (loading && !stats) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="mt-2 text-sm text-muted-foreground">Loading dashboard...</p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col min-h-screen">
       <Header title="Dashboard" />
@@ -35,32 +69,32 @@ export default function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Emails Today"
-            value={52}
-            change="+12% from yesterday"
-            changeType="positive"
+            value={stats?.emails_today || 0}
+            change="Live from Gmail"
+            changeType="neutral"
             icon={Mail}
             iconColor="text-primary"
           />
           <StatCard
             title="Tasks Extracted"
-            value={11}
-            change="+3 from yesterday"
+            value={stats?.tasks_extracted || 0}
+            change="AI-driven tasks"
             changeType="positive"
             icon={CheckSquare}
             iconColor="text-success"
           />
           <StatCard
             title="High Priority Tasks"
-            value={2}
-            change="2 require attention"
+            value={stats?.high_priority_tasks || 0}
+            change="Require attention"
             changeType="negative"
             icon={AlertTriangle}
             iconColor="text-destructive"
           />
           <StatCard
             title="Meetings Scheduled"
-            value={5}
-            change="Next: 10:00 AM"
+            value={stats?.meetings_scheduled || 0}
+            change="Upcoming today"
             changeType="neutral"
             icon={Calendar}
             iconColor="text-warning"
@@ -77,7 +111,7 @@ export default function DashboardPage() {
             <CardContent>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
+                  <BarChart data={stats?.weekly_activity || []}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                     <XAxis
                       dataKey="day"
@@ -113,82 +147,7 @@ export default function DashboardPage() {
           </Card>
 
           {/* AI Insights */}
-          <AIInsightPanel insights={aiInsights} />
-        </div>
-
-        {/* Tasks by Priority */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="bg-card border-border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold tracking-tight">Tasks by Priority</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[250px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={tasksByPriority}
-                      dataKey="count"
-                      nameKey="priority"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      label={({ priority, count }) => `${priority}: ${count}`}
-                      labelLine={false}
-                    >
-                      {tasksByPriority.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "var(--popover)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "8px",
-                        color: "var(--popover-foreground)",
-                      }}
-                    />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold tracking-tight">Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors cursor-pointer">
-                <div>
-                  <p className="font-medium text-foreground">Review pending tasks</p>
-                  <p className="text-sm text-muted-foreground">5 tasks awaiting approval</p>
-                </div>
-                <span className="rounded-full bg-warning/20 px-3 py-1 text-xs font-medium text-warning">
-                  5 Pending
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors cursor-pointer">
-                <div>
-                  <p className="font-medium text-foreground">Unread emails</p>
-                  <p className="text-sm text-muted-foreground">1 email requires attention</p>
-                </div>
-                <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                  1 New
-                </span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors cursor-pointer">
-                <div>
-                  <p className="font-medium text-foreground">Today's meetings</p>
-                  <p className="text-sm text-muted-foreground">Next meeting in 2 hours</p>
-                </div>
-                <span className="rounded-full bg-success/20 px-3 py-1 text-xs font-medium text-success">
-                  On Track
-                </span>
-              </div>
-            </CardContent>
-          </Card>
+          <AIInsightPanel insights={insights} />
         </div>
       </div>
     </div>

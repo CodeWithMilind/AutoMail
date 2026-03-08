@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/dashboard/header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -15,85 +16,75 @@ import {
   Target,
   ArrowRight,
   Lightbulb,
+  Loader2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { aiInsights, tasks, emails } from "@/lib/mock-data"
 
-const dailySummary = {
-  emailsProcessed: 52,
-  tasksExtracted: 11,
-  highPriorityTasks: 2,
-  meetingsScheduled: 5,
-  productivityScore: 87,
-}
-
-const suggestedActions = [
-  {
-    id: "1",
-    type: "urgent" as const,
-    title: "Prepare Investor Update",
-    description: "Michael Ross is expecting the Q4 performance update by end of week. Consider delegating data collection.",
-    action: "View Task",
-  },
-  {
-    id: "2",
-    type: "suggestion" as const,
-    title: "Reschedule Conflicting Meetings",
-    description: "Two meetings are scheduled at 2:00 PM on Thursday. The Partnership call could be moved to 4:00 PM.",
-    action: "View Calendar",
-  },
-  {
-    id: "3",
-    type: "optimization" as const,
-    title: "Batch Similar Tasks",
-    description: "3 tasks involve reviewing documents. Consider batching these for efficiency.",
-    action: "View Tasks",
-  },
-]
-
-const importantFlags = [
-  {
-    id: "1",
-    title: "Investor Update Due Soon",
-    priority: "high" as const,
-    source: "Email from Michael Ross",
-    dueIn: "4 days",
-  },
-  {
-    id: "2",
-    title: "New Hire Onboarding Pending",
-    priority: "medium" as const,
-    source: "Email from Lisa Wang",
-    dueIn: "3 days",
-  },
-  {
-    id: "3",
-    title: "Budget Review Meeting",
-    priority: "high" as const,
-    source: "Email from Sarah Chen",
-    dueIn: "2 days",
-  },
-]
-
-const typeIcons = {
+const typeIcons: any = {
   urgent: AlertTriangle,
   suggestion: Lightbulb,
   optimization: TrendingUp,
+  warning: AlertTriangle,
+  task: CheckCircle,
+  calendar: Calendar,
 }
 
-const typeColors = {
+const typeColors: any = {
   urgent: "text-destructive bg-destructive/10",
   suggestion: "text-primary bg-primary/10",
   optimization: "text-success bg-success/10",
+  warning: "text-destructive bg-destructive/10",
+  task: "text-success bg-success/10",
+  calendar: "text-warning bg-warning/10",
 }
 
-const priorityColors = {
+const priorityColors: any = {
   high: "bg-destructive/20 text-destructive border-destructive/30",
   medium: "bg-warning/20 text-warning border-warning/30",
   low: "bg-success/20 text-success border-success/30",
 }
 
 export default function InsightsPage() {
+  const [stats, setStats] = useState<any>(null)
+  const [insights, setInsights] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [statsRes, insightsRes] = await Promise.all([
+        fetch("/api/dashboard"),
+        fetch("/api/ai-insights")
+      ])
+      
+      if (statsRes.ok) {
+        const statsData = await statsRes.json()
+        setStats(statsData)
+      }
+      
+      if (insightsRes.ok) {
+        const insightsData = await insightsRes.json()
+        setInsights(insightsData)
+      }
+    } catch (err) {
+      console.error("Failed to fetch insights data:", err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  if (loading && !stats) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="mt-2 text-sm text-muted-foreground">Generating AI insights...</p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col min-h-screen">
       <Header title="AI Insights" />
@@ -113,7 +104,7 @@ export default function InsightsPage() {
                   <Mail className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{dailySummary.emailsProcessed}</p>
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">{stats?.emails_today || 0}</p>
                   <p className="text-xs text-muted-foreground">Emails Processed</p>
                 </div>
               </div>
@@ -122,7 +113,7 @@ export default function InsightsPage() {
                   <CheckCircle className="h-5 w-5 text-success" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{dailySummary.tasksExtracted}</p>
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">{stats?.tasks_extracted || 0}</p>
                   <p className="text-xs text-muted-foreground">Tasks Extracted</p>
                 </div>
               </div>
@@ -131,7 +122,7 @@ export default function InsightsPage() {
                   <AlertTriangle className="h-5 w-5 text-destructive" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{dailySummary.highPriorityTasks}</p>
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">{stats?.high_priority_tasks || 0}</p>
                   <p className="text-xs text-muted-foreground">High Priority</p>
                 </div>
               </div>
@@ -140,7 +131,7 @@ export default function InsightsPage() {
                   <Calendar className="h-5 w-5 text-warning" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{dailySummary.meetingsScheduled}</p>
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">{stats?.meetings_scheduled || 0}</p>
                   <p className="text-xs text-muted-foreground">Meetings Today</p>
                 </div>
               </div>
@@ -149,7 +140,7 @@ export default function InsightsPage() {
                   <Target className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{dailySummary.productivityScore}%</p>
+                  <p className="text-2xl font-semibold tracking-tight text-foreground">85%</p>
                   <p className="text-xs text-muted-foreground">Productivity Score</p>
                 </div>
               </div>
@@ -157,115 +148,46 @@ export default function InsightsPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Suggested Actions */}
+        <div className="grid gap-6">
+          {/* Recent AI Activity */}
           <Card className="bg-card border-border shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-                <Lightbulb className="h-5 w-5 text-warning" />
-                Suggested Actions
+                <TrendingUp className="h-5 w-5 text-success" />
+                Real-time AI Insights
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {suggestedActions.map((action) => {
-                const Icon = typeIcons[action.type]
-                const colorClass = typeColors[action.type]
-                return (
-                  <div
-                    key={action.id}
-                    className="flex items-start gap-4 rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className={cn("rounded-lg p-2", colorClass)}>
-                      <Icon className="h-4 w-4" />
+            <CardContent>
+              <div className="space-y-3">
+                {insights.map((insight, index) => {
+                  const Icon = typeIcons[insight.type] || Sparkles
+                  const colorClass = typeColors[insight.type] || "text-primary bg-primary/10"
+                  
+                  return (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={cn("rounded-lg p-2", colorClass)}>
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-foreground">{insight.message}</p>
+                          <p className="text-xs text-muted-foreground">{insight.time}</p>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" className="gap-1">
+                        View
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <div className="flex-1 space-y-1">
-                      <h4 className="font-medium text-foreground">{action.title}</h4>
-                      <p className="text-sm text-muted-foreground">{action.description}</p>
-                    </div>
-                    <Button variant="ghost" size="sm" className="shrink-0">
-                      {action.action}
-                      <ArrowRight className="ml-1 h-4 w-4" />
-                    </Button>
-                  </div>
-                )
-              })}
-            </CardContent>
-          </Card>
-
-          {/* Important Tasks Flagged */}
-          <Card className="bg-card border-border shadow-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-                <AlertTriangle className="h-5 w-5 text-destructive" />
-                Important Tasks Flagged by AI
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {importantFlags.map((flag) => (
-                <div
-                  key={flag.id}
-                  className="flex items-start justify-between rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-medium text-foreground">{flag.title}</h4>
-                      <Badge variant="outline" className={priorityColors[flag.priority]}>
-                        {flag.priority}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{flag.source}</p>
-                  </div>
-                  <div className="flex items-center gap-1 text-sm">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span className={cn(
-                      flag.priority === "high" ? "text-destructive font-medium" : "text-muted-foreground"
-                    )}>
-                      Due in {flag.dueIn}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                  )
+                })}
+              </div>
             </CardContent>
           </Card>
         </div>
-
-        {/* Recent AI Activity */}
-        <Card className="bg-card border-border shadow-sm">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-              <TrendingUp className="h-5 w-5 text-success" />
-              Recent AI Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {aiInsights.map((insight) => {
-                const typeConfig = {
-                  urgent: { icon: AlertTriangle, color: "text-destructive", bg: "bg-destructive/10" },
-                  info: { icon: Sparkles, color: "text-primary", bg: "bg-primary/10" },
-                  success: { icon: CheckCircle, color: "text-success", bg: "bg-success/10" },
-                  warning: { icon: Clock, color: "text-warning", bg: "bg-warning/10" },
-                }
-                const config = typeConfig[insight.type]
-                const Icon = config.icon
-                return (
-                  <div
-                    key={insight.id}
-                    className="flex items-start gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors"
-                  >
-                    <div className={cn("rounded-lg p-2", config.bg)}>
-                      <Icon className={cn("h-4 w-4", config.color)} />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm text-foreground">{insight.message}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{insight.timestamp}</p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   )

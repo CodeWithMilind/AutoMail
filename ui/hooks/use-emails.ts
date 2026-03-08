@@ -17,6 +17,11 @@ export interface Email {
   fullContent: string;
 }
 
+function getHeader(headers: any[], name: string) {
+  const header = headers?.find((h: any) => h.name === name);
+  return header ? header.value : "";
+}
+
 export function useEmails() {
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,19 +38,27 @@ export function useEmails() {
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   const transformEmailMetadata = useCallback((data: any): Email => {
+    const headers = data.payload?.headers || [];
+    const from = getHeader(headers, "From") || data.sender || "";
+    const subject = getHeader(headers, "Subject") || data.subject || "";
+    const date = getHeader(headers, "Date") || data.date || "";
+
+    const senderName = from?.split("<")[0]?.replace(/"/g, "").trim() || "Unknown Sender";
+    const senderEmail = from?.match(/<(.+)>/)?.[1] || from || "Unknown Email";
+
     return {
       id: data.id,
-      sender: data.sender.split("<")[0].trim(),
-      senderEmail: data.sender.match(/<(.+)>/)?.[1] || data.sender,
-      subject: data.subject,
-      snippet: data.snippet,
-      date: data.date,
-      aiSummary: data.snippet,
+      sender: senderName,
+      senderEmail: senderEmail,
+      subject: subject || "No Subject",
+      snippet: data.snippet || "",
+      date: date || new Date().toISOString(),
+      aiSummary: data.aiSummary || data.snippet || "",
       tasksExtracted: 0,
       tasks: [],
       isRead: true,
-      priority: "medium",
-      fullContent: data.snippet,
+      priority: data.priority || "medium",
+      fullContent: data.snippet || "",
     };
   }, []);
 
@@ -139,19 +152,27 @@ export function useEmails() {
       if (!response.ok) throw new Error("Failed to fetch email details");
       const data = await response.json();
       
+      const headers = data.payload?.headers || [];
+      const from = getHeader(headers, "From") || data.sender || "";
+      const subject = getHeader(headers, "Subject") || data.subject || "";
+      const date = getHeader(headers, "Date") || data.date || "";
+
+      const senderName = from?.split("<")[0]?.replace(/"/g, "").trim() || "Unknown Sender";
+      const senderEmail = from?.match(/<(.+)>/)?.[1] || from || "Unknown Email";
+
       const detailedEmail: Email = {
         id: data.id,
-        sender: data.sender.split("<")[0].trim(),
-        senderEmail: data.sender.match(/<(.+)>/)?.[1] || data.sender,
-        subject: data.subject,
-        snippet: data.body.substring(0, 100),
-        date: data.date,
-        aiSummary: data.ai_summary,
-        tasksExtracted: data.tasks.length,
-        tasks: data.tasks,
+        sender: senderName,
+        senderEmail: senderEmail,
+        subject: subject || "No Subject",
+        snippet: data.body?.substring(0, 100) || data.snippet || "",
+        date: date || new Date().toISOString(),
+        aiSummary: data.ai_summary || data.snippet || "",
+        tasksExtracted: data.tasks?.length || 0,
+        tasks: data.tasks || [],
         isRead: true,
-        priority: data.priority,
-        fullContent: data.body,
+        priority: data.priority || "medium",
+        fullContent: data.body || data.snippet || "",
       };
       
       setSelectedEmailDetail(detailedEmail);

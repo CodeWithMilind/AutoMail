@@ -9,14 +9,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "settings.json")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 def get_settings():
     if not os.path.exists(SETTINGS_FILE):
         default_settings = {
-            "llm_provider": "ollama",
-            "groq_api_key": os.getenv("GROQ_API_KEY", ""),
+            "llm_provider": "groq",
+            "groq_api_key": GROQ_API_KEY or "",
             "ollama_model": "llama3",
-            "groq_model": "llama-3.1-8b-instant"
+            "groq_model": "llama3-70b-8192"
         }
         save_settings(default_settings)
         return default_settings
@@ -29,13 +30,14 @@ def save_settings(settings):
         json.dump(settings, f, indent=4)
 
 def ollama_analyze(text, model="llama3"):
-    # Truncate text to 2000 characters to keep it fast
     clean_text = text[:2000]
     prompt = f"""
     Analyze the following email and return a JSON object with:
     1. "summary": A 2-sentence concise summary.
     2. "tasks": A list of extracted actionable tasks or an empty list if none.
-    3. "priority": Either "high", "medium", or "low" based on urgency.
+    3. "priority": Either "low", "medium", or "high" based on urgency.
+    4. "meeting_detected": Boolean (true if a meeting request, calendar invite, or scheduling discussion is found).
+    5. "due_date": A string in YYYY-MM-DD format if a specific deadline is mentioned, else null.
 
     Email:
     {clean_text}
@@ -49,7 +51,6 @@ def ollama_analyze(text, model="llama3"):
             messages=[{"role": "user", "content": prompt}]
         )
         content = response["message"]["content"]
-        # Basic JSON extraction from response
         start = content.find("{")
         end = content.rfind("}") + 1
         result = json.loads(content[start:end])
@@ -59,35 +60,41 @@ def ollama_analyze(text, model="llama3"):
         print(f"Ollama Error: {e}")
         return None
 
-def groq_analyze(text, api_key, model="llama-3.1-8b-instant"):
+def groq_analyze(text, api_key, model="llama3-70b-8192"):
     if not api_key:
         print("Groq Error: Missing API Key")
         return None
     
-    # Truncate text to 2000 characters to keep it fast
     clean_text = text[:2000]
     client = Groq(api_key=api_key)
-    # Ensure model has a fallback
-    model = model or "llama-3.1-8b-instant"
-    prompt = f"""
-    Analyze the following email and return a JSON object with:
-    1. "summary": A 2-sentence concise summary.
-    2. "tasks": A list of extracted actionable tasks or an empty list if none.
-    3. "priority": Either "high", "medium", or "low" based on urgency.
-
-    Email:
-    {clean_text}
-
-    Return ONLY the JSON.
-    """
+    model = model or "llama3-70b-8192"
+    
     try:
         start_time = time.time()
-        # Adding a timeout of 8 seconds to prevent hanging
         response = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an AI executive assistant that analyzes emails. Return ONLY valid JSON."
+                },
+                {
+                    "role": "user",
+                    "content": f"""Analyze this email and return JSON only:
+{{
+  "summary": "...",
+  "tasks": [],
+  "priority": "low | medium | high",
+  "meeting_detected": true/false,
+  "due_date": "YYYY-MM-DD or null"
+}}
+
+Email:
+{clean_text}"""
+                }
+            ],
             response_format={"type": "json_object"},
-            timeout=8.0 
+            timeout=10.0 
         )
         result = json.loads(response.choices[0].message.content)
         print(f"Groq Analysis Time ({model}): {time.time() - start_time:.2f}s")
@@ -98,15 +105,15 @@ def groq_analyze(text, api_key, model="llama-3.1-8b-instant"):
 
 def generate_ai_analysis(text):
     settings = get_settings()
-    provider = settings.get("llm_provider", "ollama")
+    provider = settings.get("llm_provider", "groq")
     print(f"--- Active AI Provider: {provider} ---")
     
     analysis = None
     if provider == "groq":
         analysis = groq_analyze(
             text, 
-            settings.get("groq_api_key") or os.getenv("GROQ_API_KEY"), 
-            settings.get("groq_model", "llama-3.1-8b-instant")
+            settings.get("groq_api_key") or GROQ_API_KEY, 
+            settings.get("groq_model", "llama3-70b-8192")
         )
     else:
         analysis = ollama_analyze(
@@ -114,13 +121,14 @@ def generate_ai_analysis(text):
             settings.get("ollama_model", "llama3")
         )
     
-    # Fallback structure if LLM fails or times out
     if not analysis:
         print("AI analysis failed or timed out. Returning fallback.")
         return {
-            "summary": "Analysis unavailable. Please try again later.",
+            "summary": "Analysis unavailable. Please check your API key and provider settings.",
             "tasks": [],
-            "priority": "medium"
+            "priority": "medium",
+            "meeting_detected": False,
+            "due_date": None
         }
     
     return analysis
