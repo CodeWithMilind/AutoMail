@@ -1,5 +1,7 @@
 import os
 import base64
+import json
+import time
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -15,13 +17,39 @@ class GmailService:
         if access_token:
             creds = Credentials(token=access_token)
             self.service = build('gmail', 'v1', credentials=creds)
+        self.settings_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "settings.json")
+
+    def _get_connection_timestamp(self):
+        """
+        Get or set the gmail_connected_at timestamp in settings.json
+        """
+        if not os.path.exists(self.settings_file):
+            data = {"gmail_connected_at": int(time.time())}
+            with open(self.settings_file, "w") as f:
+                json.dump(data, f, indent=4)
+            return data["gmail_connected_at"]
+        
+        with open(self.settings_file, "r") as f:
+            data = json.load(f)
+        
+        if "gmail_connected_at" not in data:
+            data["gmail_connected_at"] = int(time.time())
+            with open(self.settings_file, "w") as f:
+                json.dump(data, f, indent=4)
+        
+        return data["gmail_connected_at"]
 
     def fetch_latest_emails(self, limit=25):
         if not self.service:
             return [], "gmail_auth_required"
         
         try:
-            results = self.service.users().messages().list(userId='me', maxResults=limit).execute()
+            # Demo Mode: Only fetch emails after connection timestamp
+            connected_at = self._get_connection_timestamp()
+            query = f"after:{connected_at}"
+            print(f"--- Demo Mode Active: Fetching emails with query: {query} ---")
+            
+            results = self.service.users().messages().list(userId='me', q=query, maxResults=limit).execute()
             messages = results.get('messages', [])
             
             emails = []

@@ -14,18 +14,12 @@ export default function EmailsPage() {
     const loadEmails = async () => {
       try {
         setLoading(true)
-        const res = await fetch("/api/emails", { cache: 'no-store' })
-        
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`)
-        }
-        
+        const res = await fetch("/api/emails", { cache: "no-store" })
+        if (!res.ok) throw new Error("Failed to fetch")
         const data = await res.json()
         setEmails(Array.isArray(data) ? data : [])
-        setError(null)
-      } catch (err: any) {
-        console.error("Failed to load emails:", err)
-        setError(err.message || "An unexpected error occurred while loading emails.")
+      } catch (error) {
+        console.error("Email fetch failed:", error)
       } finally {
         setLoading(false)
       }
@@ -54,9 +48,12 @@ export default function EmailsPage() {
       <div className="flex-1 p-8 space-y-6">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Email Inbox</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage your synchronized Gmail messages and AI analysis insights.
-          </p>
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 rounded-full bg-success animate-pulse" />
+            <p className="text-sm text-muted-foreground">
+              Demo Mode Active &mdash; Only new emails received after connection are shown.
+            </p>
+          </div>
         </div>
 
         {error ? (
