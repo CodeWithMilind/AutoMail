@@ -66,8 +66,7 @@ def ollama_analyze(text, model="llama3"):
 
 def groq_analyze(text, api_key, model="llama3-70b-8192"):
     if not api_key:
-        print("Groq Error: Missing API Key")
-        return None
+        raise ValueError("GROQ_API_KEY is not set. Add it to backend/.env")
     
     clean_text = text[:2000]
     client = Groq(api_key=api_key)
@@ -87,36 +86,33 @@ def groq_analyze(text, api_key, model="llama3-70b-8192"):
                     "content": f"""Analyze this email and return JSON only:
 {{
   "summary": "A 2-sentence concise summary.",
+  "priority": "low|medium|high",
   "tasks": [
     {{
       "title": "Task name",
       "description": "Short description",
       "due_date": "YYYY-MM-DD or null",
-      "priority": "low | medium | high"
+      "priority": "low|medium|high"
     }}
   ],
-  "priority": "low | medium | high (based on importance, deadlines, meeting mentions)",
-  "sentiment": "positive | neutral | negative",
+  "sentiment": "positive|neutral|negative",
   "key_points": ["Point 1", "Point 2"],
   "is_meeting_related": true/false,
-  "meeting_info": {{
-    "title": "Meeting title",
-    "time": "Tomorrow 3 PM or YYYY-MM-DD HH:MM",
-    "location": "Zoom/Office",
-    "participants": ["name@email.com"]
-  }},
+  "meeting_info": {{"title": "", "time": "", "location": "", "participants": []}},
   "requires_followup": true/false,
-  "followup_deadline": "24 hours | 2 days | null"
+  "followup_deadline": "24 hours|2 days|null"
 }}
 
-Email:
-{clean_text}"""
+Email content:
+{clean_text}
+"""
                 }
             ],
             response_format={"type": "json_object"},
-            timeout=10.0 
+            timeout=10.0
         )
-        result = json.loads(response.choices[0].message.content)
+        content = response.choices[0].message.content
+        result = json.loads(content)
         print(f"Groq Analysis Time ({model}): {time.time() - start_time:.2f}s")
         return result
     except Exception as e:

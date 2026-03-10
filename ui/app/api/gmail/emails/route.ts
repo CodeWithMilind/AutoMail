@@ -47,15 +47,12 @@ export async function GET(request: Request) {
     }
 
     // Otherwise, fetch full list metadata (fallback or batch)
-    const pythonBackendUrl = new URL("http://localhost:8000/gmail/emails");
-    if (pageToken) {
-      pythonBackendUrl.searchParams.set("pageToken", pageToken);
-    }
-
-    const response = await fetch(pythonBackendUrl.toString(), {
+    const response = await fetch("http://localhost:8000/gmail/emails", {
       headers: {
         Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
       },
+      cache: "no-store"
     });
 
     if (!response.ok) {
@@ -110,21 +107,21 @@ export async function POST(request: Request) {
       });
     }
 
-    // Default: Fetch full details + AI analysis
-    const pythonBackendUrl = `http://localhost:8000/gmail/emails/${emailId}`;
-    const response = await fetch(pythonBackendUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Failed to fetch email details from Python backend");
+    if (mode === "full") {
+      const session = await getServerSession(authOptions) as any
+      const accessToken = session?.accessToken
+      if (!accessToken) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+      const pythonRes = await fetch(`http://localhost:8000/gmail/emails/${emailId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      if (!pythonRes.ok) {
+        const err = await pythonRes.json().catch(() => ({}))
+        throw new Error(err.detail || `Backend error ${pythonRes.status}`)
+      }
+      return NextResponse.json(await pythonRes.json())
     }
-
-    const data = await response.json();
-    return NextResponse.json(data);
   } catch (error: any) {
     console.error("Gmail Detail Error:", error);
     return NextResponse.json(

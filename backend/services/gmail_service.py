@@ -2,6 +2,7 @@ import os
 import base64
 import json
 import time
+from datetime import datetime, date
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -44,10 +45,10 @@ class GmailService:
             return [], "gmail_auth_required"
         
         try:
-            # Demo Mode: Only fetch emails after connection timestamp
-            connected_at = self._get_connection_timestamp()
-            query = f"after:{connected_at}"
-            print(f"--- Demo Mode Active: Fetching emails with query: {query} ---")
+            # Get today's date in Gmail's required format: YYYY/MM/DD 
+            today = date.today().strftime("%Y/%m/%d") 
+            query = f"after:{today} in:inbox" 
+            print(f"--- Fetching today's emails with query: {query} ---")
             
             results = self.service.users().messages().list(userId='me', q=query, maxResults=limit).execute()
             messages = results.get('messages', [])

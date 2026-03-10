@@ -30,7 +30,9 @@ export function useEmails() {
     const fetchEmails = useCallback(async () => {
         setLoading(true);
         try {
-            const data = await api.fetchEmails();
+            const res = await fetch("/api/emails", { cache: "no-cache" });
+            const json = await res.json();
+            const data = Array.isArray(json) ? json : (json.emails || []);
             setEmails(data);
         } catch (err: any) {
             setError(err.message);

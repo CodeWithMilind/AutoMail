@@ -9,8 +9,19 @@ export async function GET() {
     // 1. Safely handle authentication
     const session = await getServerSession(authOptions)
     
-    if (!session || !(session as any).accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (!session) {
+      return NextResponse.json(
+        { error: "Unauthorized - Please sign in" },
+        { status: 401 }
+      )
+    }
+
+    const accessToken = (session as any).accessToken
+    if (!accessToken) {
+      return NextResponse.json(
+        { error: "Gmail access token missing. Sign out and sign in again." },
+        { status: 403 }
+      )
     }
 
     // 2. Setup Google OAuth2 client
@@ -20,7 +31,7 @@ export async function GET() {
     )
 
     auth.setCredentials({
-      access_token: (session as any).accessToken
+      access_token: accessToken
     })
 
     const gmail = google.gmail({ version: "v1", auth })
@@ -29,7 +40,7 @@ export async function GET() {
     const listRes = await gmail.users.messages.list({
       userId: "me",
       maxResults: 25,
-      q: "in:inbox"
+      q: "newer_than:1d"
     })
 
     const messages = listRes.data.messages || []
@@ -69,6 +80,22 @@ export async function GET() {
   } catch (error: any) {
     // 5. Full error protection
     console.error("Gmail API Error:", error)
-    return NextResponse.json({ error: "Internal error" }, { status: 500 })
+
+    if (error?.code === 401 || error?.status === 401) {
+      return NextResponse.json(
+        { error: "Gmail token expired. Please sign out and sign in again." },
+        { status: 401 }
+      )
+    }
+    if (error?.code === 403 || error?.status === 403) {
+      return NextResponse.json(
+        { error: "Gmail permission denied. Check gmail.readonly scope." },
+        { status: 403 }
+      )
+    }
+    return NextResponse.json(
+      { error: error?.message || "Failed to fetch emails from Gmail." },
+      { status: 500 }
+    )
   }
 }

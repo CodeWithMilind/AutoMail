@@ -97,53 +97,21 @@ def process_email_analysis(email_id: str, access_token: str, db: Session):
                 "location": meeting_info.get("location"),
                 "participants": json.dumps(meeting_info.get("participants", []))
             })
-
-        # Save Follow-up if detected
-        if analysis.get("requires_followup"):
-            deadline_str = analysis.get("followup_deadline", "24 hours")
-            # Basic parsing for relative time
-            hours = 24
-            if "hour" in deadline_str:
-                try: hours = int(deadline_str.split()[0])
-                except: pass
-            elif "day" in deadline_str:
-                try: hours = int(deadline_str.split()[0]) * 24
-                except: pass
             
-            create_followup(db, {
+        # Save Tasks if extracted
+        tasks = analysis.get("tasks", [])
+        for task_data in tasks:
+            create_task(db, {
+                "title": task_data.get("title"),
+                "description": task_data.get("description"),
                 "email_id": email_id,
-                "reminder_time": datetime.utcnow() + timedelta(hours=hours),
-                "status": "pending"
+                "email_sender": sender,
+                "priority": task_data.get("priority", "medium"),
+                "status": "pending",
+                "due_date": datetime.strptime(task_data.get("due_date"), "%Y-%m-%d") if task_data.get("due_date") and task_data.get("due_date") != "null" else None
             })
-        
-        # Save Tasks
-        extracted_tasks = analysis.get("tasks", [])
-        for task_info in extracted_tasks:
-            title = task_info.get("title") if isinstance(task_info, dict) else str(task_info)
-            description = task_info.get("description", "") if isinstance(task_info, dict) else ""
-            priority = task_info.get("priority", analysis.get("priority", "medium")) if isinstance(task_info, dict) else analysis.get("priority", "medium")
-            due_date_str = task_info.get("due_date")
-            
-            due_date = None
-            if due_date_str:
-                try:
-                    due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
-                except:
-                    pass
-            
-            if title:
-                create_task(db, {
-                    "title": title,
-                    "description": description,
-                    "email_id": email_id,
-                    "email_sender": sender,
-                    "priority": priority,
-                    "status": "pending",
-                    "due_date": due_date
-                })
-        print(f"Successfully auto-analyzed email: {email_id}")
     except Exception as e:
-        print(f"Error in background analysis for {email_id}: {e}")
+        print(f"Error processing analysis for {email_id}: {e}")
 
 # --- API Endpoints ---
 
@@ -527,37 +495,26 @@ async def gmail_callback(request: Request):
     return RedirectResponse(url="http://localhost:3000/dashboard")
 
 @app.get("/gmail/emails")
-async def get_gmail_emails(request: Request, background_tasks: BackgroundTasks, pageToken: str = None, db: Session = Depends(get_db)):
-    """
-    Fetch latest emails from Gmail using the backend gmail_service.
-    Triggers background analysis for new emails.
-    """
-    emails, error = fetch_latest_emails(limit=10)
-    if error == "gmail_auth_required":
-        return {"error": "gmail_auth_required"}
+async def get_gmail_emails(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    access_token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Missing Authorization token")
+
+    from services.gmail_service import GmailService
+    gmail_service = GmailService(access_token=access_token)
+    emails, error = gmail_service.fetch_latest_emails(limit=25)
+    
     if error:
         raise HTTPException(status_code=500, detail=error)
     
-    # 2. Check analysis status and trigger background tasks
+    # Check analysis status and trigger background processing
     for email in emails:
-        # Check if already analyzed
         analyzed = db.query(AnalyzedEmail).filter(AnalyzedEmail.id == email["id"]).first()
-        email["is_analyzed"] = analyzed is not None
-        
-        # 3. Trigger background analysis if not analyzed
+        email["ai_processed"] = analyzed is not None
         if not analyzed:
-            # Note: process_email_analysis needs an access_token. 
-            # We can get it from our backend creds.
-            from services.gmail_service import get_gmail_service
-            service, _ = get_gmail_service()
-            if service:
-                access_token = service._http.credentials.token
-                background_tasks.add_task(process_email_analysis, email["id"], access_token, db)
-            
-    return {
-        "emails": emails,
-        "nextPageToken": None # The fetch_latest_emails doesn't support pageToken yet
-    }
+            background_tasks.add_task(process_email_analysis, email["id"], access_token, db)
+    
+    return {"emails": emails}
 
 @app.get("/gmail/emails/{email_id}")
 async def get_email_detail(email_id: str, request: Request, db: Session = Depends(get_db)):
@@ -565,19 +522,22 @@ async def get_email_detail(email_id: str, request: Request, db: Session = Depend
     Fetch full email body and return AI summary.
     Uses backend-managed gmail_service.
     """
-    from services.gmail_service import get_gmail_service
-    service, error = get_gmail_service()
-    if error == "gmail_auth_required":
-        return {"error": "gmail_auth_required"}
-    if error:
-        raise HTTPException(status_code=500, detail=error)
+    auth_header = request.headers.get("Authorization", "")
+    access_token = auth_header.replace("Bearer ", "").strip()
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Missing Authorization token")
+
+    from services.gmail_service import GmailService
+    gmail = GmailService(access_token=access_token)
+    if not gmail.service:
+        raise HTTPException(status_code=401, detail="Failed to build Gmail client")
     
     try:
         # Check for pre-analyzed data
-        analyzed = db.query(AnalyzedEmail).filter(AnalyzedEmail.id == email_id).first()
+        analyzedexisting = db.query(AnalyzedEmail).filter(AnalyzedEmail.id == email_id).first()
         
         # Always fetch message for display
-        msg = service.users().messages().get(userId='me', id=email_id).execute()
+        msg = gmail.service.users().messages().get(userId='me', id=email_id).execute()
         
         payload = msg.get('payload', {})
         headers = payload.get('headers', [])
@@ -587,11 +547,11 @@ async def get_email_detail(email_id: str, request: Request, db: Session = Depend
         snippet = msg.get('snippet', "")
         body = get_email_body(payload) or snippet
 
-        if analyzed:
-            summary = analyzed.summary
-            priority = analyzed.priority
-            sentiment = analyzed.sentiment
-            key_points = json.loads(analyzed.key_points) if analyzed.key_points else []
+        if existing:
+            summary = existing.summary
+            priority = existing.priority
+            sentiment = existing.sentiment
+            key_points = json.loads(existing.key_points) if existing.key_points else []
             tasks_list = db.query(Task).filter(Task.email_id == email_id).all()
             return {
                 "id": email_id,
@@ -604,7 +564,7 @@ async def get_email_detail(email_id: str, request: Request, db: Session = Depend
                 "key_points": key_points,
                 "tasks": [{"title": t.title, "priority": t.priority, "description": t.description, "due_date": t.due_date} for t in tasks_list],
                 "priority": priority,
-                "is_meeting_related": analyzed.meeting_detected
+                "is_meeting_related": existing.meeting_detected
             }
         
         # If not pre-analyzed, analyze now
