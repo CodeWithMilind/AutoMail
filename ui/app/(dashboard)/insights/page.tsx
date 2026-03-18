@@ -1,15 +1,13 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
 import { Header } from "@/components/dashboard/header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Sparkles,
   AlertTriangle,
   CheckCircle,
-  Clock,
   TrendingUp,
   Mail,
   Calendar,
@@ -17,8 +15,11 @@ import {
   ArrowRight,
   Lightbulb,
   Loader2,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useEmails, useTasks, useMeetings, useInsights, useSync } from "@/services/api"
 
 const typeIcons: any = {
   urgent: AlertTriangle,
@@ -27,6 +28,8 @@ const typeIcons: any = {
   warning: AlertTriangle,
   task: CheckCircle,
   calendar: Calendar,
+  info: Sparkles,
+  success: CheckCircle,
 }
 
 const typeColors: any = {
@@ -36,47 +39,26 @@ const typeColors: any = {
   warning: "text-destructive bg-destructive/10",
   task: "text-success bg-success/10",
   calendar: "text-warning bg-warning/10",
-}
-
-const priorityColors: any = {
-  high: "bg-destructive/20 text-destructive border-destructive/30",
-  medium: "bg-warning/20 text-warning border-warning/30",
-  low: "bg-success/20 text-success border-success/30",
+  info: "text-primary bg-primary/10",
+  success: "text-success bg-success/10",
 }
 
 export default function InsightsPage() {
-  const [stats, setStats] = useState<any>(null)
-  const [insights, setInsights] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: emails = [], isLoading: isLoadingEmails } = useEmails();
+  const { data: tasks = [], isLoading: isLoadingTasks } = useTasks();
+  const { data: meetings = [], isLoading: isLoadingMeetings } = useMeetings();
+  const { data: insights = [], isLoading: isLoadingInsights, error, refetch } = useInsights();
+  
+  const syncMutation = useSync();
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [statsRes, insightsRes] = await Promise.all([
-        fetch("/api/dashboard"),
-        fetch("/api/ai-insights")
-      ])
-      
-      if (statsRes.ok) {
-        const statsData = await statsRes.json()
-        setStats(statsData)
-      }
-      
-      if (insightsRes.ok) {
-        const insightsData = await insightsRes.json()
-        setInsights(insightsData)
-      }
-    } catch (err) {
-      console.error("Failed to fetch insights data:", err)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const handleSync = () => {
+    syncMutation.mutate();
+  };
 
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
+  const highPriorityTasks = tasks.filter(t => t.priority === "High").length;
+  const isLoading = isLoadingEmails || isLoadingTasks || isLoadingMeetings || isLoadingInsights;
 
-  if (loading && !stats) {
+  if (isLoading && insights.length === 0) {
     return (
       <div className="flex h-screen flex-col items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -89,6 +71,48 @@ export default function InsightsPage() {
     <div className="flex flex-col min-h-screen">
       <Header title="AI Insights" />
       <div className="flex-1 space-y-6 p-8">
+        <div className="flex items-center justify-between">
+          <h2 className="text-3xl font-bold tracking-tight">AI Insights</h2>
+          <div className="flex gap-2">
+            <Button 
+              onClick={() => refetch()} 
+              disabled={isLoading || syncMutation.isPending}
+              variant="outline"
+              className="gap-2"
+            >
+              <RefreshCw className={cn("h-4 w-4", isLoading && !syncMutation.isPending && "animate-spin")} />
+              Refresh
+            </Button>
+            <Button 
+              onClick={handleSync} 
+              disabled={syncMutation.isPending}
+              className="gap-2"
+            >
+              {syncMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Sync Now
+            </Button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive">
+            <AlertCircle className="h-5 w-5" />
+            <p className="text-sm font-medium">Failed to load insights. Please try again.</p>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => refetch()}
+              className="ml-auto h-8 border-destructive/50 text-destructive hover:bg-destructive/20"
+            >
+              Retry
+            </Button>
+          </div>
+        )}
+
         {/* Daily Summary */}
         <Card className="bg-card border-border shadow-sm">
           <CardHeader>
@@ -99,51 +123,25 @@ export default function InsightsPage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-              <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors">
-                <div className="rounded-xl bg-primary/10 p-2.5">
-                  <Mail className="h-5 w-5 text-primary" />
+              {[
+                { label: "Emails Processed", value: emails.length, icon: Mail, color: "primary" },
+                { label: "Tasks Extracted", value: tasks.length, icon: CheckCircle, color: "success" },
+                { label: "High Priority", value: highPriorityTasks, icon: AlertTriangle, color: "destructive" },
+                { label: "Meetings Today", value: meetings.length, icon: Calendar, color: "warning" },
+                { label: "Productivity Score", value: "85%", icon: Target, color: "primary" },
+              ].map((stat, i) => (
+                <div key={i} className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors">
+                  <div className={cn("rounded-xl p-2.5", `bg-${stat.color}/10`)}>
+                    <stat.icon className={cn("h-5 w-5", `text-${stat.color}`)} />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-semibold tracking-tight text-foreground">
+                      {isLoading ? <Skeleton className="h-8 w-12" /> : stat.value}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{stat.label}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{stats?.emails_today || 0}</p>
-                  <p className="text-xs text-muted-foreground">Emails Processed</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors">
-                <div className="rounded-xl bg-success/10 p-2.5">
-                  <CheckCircle className="h-5 w-5 text-success" />
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{stats?.tasks_extracted || 0}</p>
-                  <p className="text-xs text-muted-foreground">Tasks Extracted</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors">
-                <div className="rounded-xl bg-destructive/10 p-2.5">
-                  <AlertTriangle className="h-5 w-5 text-destructive" />
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{stats?.high_priority_tasks || 0}</p>
-                  <p className="text-xs text-muted-foreground">High Priority</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors">
-                <div className="rounded-xl bg-warning/10 p-2.5">
-                  <Calendar className="h-5 w-5 text-warning" />
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">{stats?.meetings_scheduled || 0}</p>
-                  <p className="text-xs text-muted-foreground">Meetings Today</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors">
-                <div className="rounded-xl bg-primary/10 p-2.5">
-                  <Target className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold tracking-tight text-foreground">85%</p>
-                  <p className="text-xs text-muted-foreground">Productivity Score</p>
-                </div>
-              </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -159,31 +157,52 @@ export default function InsightsPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {insights.map((insight, index) => {
-                  const Icon = typeIcons[insight.type] || Sparkles
-                  const colorClass = typeColors[insight.type] || "text-primary bg-primary/10"
-                  
-                  return (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors"
-                    >
+                {isLoading ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 p-4">
                       <div className="flex items-center gap-4">
-                        <div className={cn("rounded-lg p-2", colorClass)}>
-                          <Icon className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-foreground">{insight.message}</p>
-                          <p className="text-xs text-muted-foreground">{insight.time}</p>
+                        <Skeleton className="h-10 w-10 rounded-lg" />
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-64" />
+                          <Skeleton className="h-3 w-24" />
                         </div>
                       </div>
-                      <Button variant="ghost" size="sm" className="gap-1">
-                        View
-                        <ArrowRight className="h-4 w-4" />
-                      </Button>
+                      <Skeleton className="h-8 w-16 rounded-md" />
                     </div>
-                  )
-                })}
+                  ))
+                ) : insights.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Sparkles className="h-12 w-12 text-muted-foreground/30 mb-4" />
+                    <p className="text-sm font-medium text-muted-foreground">No insights available yet</p>
+                    <p className="text-xs text-muted-foreground">Sync your emails to generate AI insights</p>
+                  </div>
+                ) : (
+                  insights.map((insight) => {
+                    const Icon = typeIcons[insight.type] || Sparkles
+                    const colorClass = typeColors[insight.type] || "text-primary bg-primary/10"
+                    
+                    return (
+                      <div
+                        key={insight.id}
+                        className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 p-4 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={cn("rounded-lg p-2", colorClass)}>
+                            <Icon className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground">{insight.message}</p>
+                            <p className="text-xs text-muted-foreground">{insight.timestamp}</p>
+                          </div>
+                        </div>
+                        <Button variant="ghost" size="sm" className="gap-1">
+                          View
+                          <ArrowRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )
+                  })
+                )}
               </div>
             </CardContent>
           </Card>

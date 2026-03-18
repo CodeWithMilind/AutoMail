@@ -11,4 +11,4 @@ class Meeting(Base):
     datetime = Column(String) # Store as string for flexibility from AI
     location = Column(String, nullable=True)
     participants = Column(Text, nullable=True) # JSON serialized list
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())

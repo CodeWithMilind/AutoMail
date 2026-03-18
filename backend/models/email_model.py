@@ -22,4 +22,4 @@ class Email(Base):
     meeting_detected = Column(Boolean, default=False)
     requires_followup = Column(Boolean, default=False)
     followup_deadline = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=lambda: datetime.utcnow())

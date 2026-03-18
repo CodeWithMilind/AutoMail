@@ -38,7 +38,7 @@ class Meeting(Base):
     datetime = Column(String) # Store as string for flexibility from AI
     location = Column(String, nullable=True)
     participants = Column(Text, nullable=True) # JSON serialized list
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
 # Follow-up Model
 class Followup(Base):
@@ -48,7 +48,7 @@ class Followup(Base):
     email_id = Column(String, index=True)
     reminder_time = Column(DateTime)
     status = Column(String, default="pending") # pending, completed
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
 # Task Model (Updated)
 class Task(Base):
@@ -62,7 +62,7 @@ class Task(Base):
     priority = Column(String, default="medium") # low, medium, high
     status = Column(String, default="pending") # pending, approved, completed
     due_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
 # Create tables
 Base.metadata.create_all(bind=engine)

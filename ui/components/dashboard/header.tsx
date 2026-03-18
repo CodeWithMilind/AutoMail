@@ -1,6 +1,6 @@
 "use client"
 
-import { useSession, signOut } from "next-auth/react"
+import { useAuth } from "@/hooks/useAuth"
 import { Bell, Search, User, LogOut, Settings } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -19,8 +19,7 @@ interface HeaderProps {
 }
 
 export function Header({ title }: HeaderProps) {
-  const { data: session } = useSession()
-  const user = session?.user
+  const { user, signOut } = useAuth()
 
   const getInitials = (name?: string | null) => {
     if (!name) return "U"
@@ -30,6 +29,9 @@ export function Header({ title }: HeaderProps) {
       .join("")
       .toUpperCase()
   }
+
+  const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || "User"
+  const userImage = user?.user_metadata?.avatar_url || ""
 
   return (
     <header className="flex h-16 items-center justify-between border-b border-border bg-card px-8 shadow-sm">
@@ -75,9 +77,9 @@ export function Header({ title }: HeaderProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-9 w-9 rounded-full">
               <Avatar className="h-9 w-9">
-                <AvatarImage src={user?.image || ""} alt={user?.name || "User"} />
+                <AvatarImage src={userImage} alt={userName} />
                 <AvatarFallback className="bg-primary text-primary-foreground">
-                  {getInitials(user?.name)}
+                  {getInitials(userName)}
                 </AvatarFallback>
               </Avatar>
             </Button>
@@ -85,7 +87,7 @@ export function Header({ title }: HeaderProps) {
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">{user?.name || "User"}</p>
+                <p className="text-sm font-medium leading-none">{userName}</p>
                 <p className="text-xs leading-none text-muted-foreground">
                   {user?.email || "user@example.com"}
                 </p>
@@ -101,9 +103,9 @@ export function Header({ title }: HeaderProps) {
               <span>Settings</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/" })}>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => signOut()}>
               <LogOut className="mr-2 h-4 w-4" />
-              <span>Sign out</span>
+              <span>Log out</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -9,4 +9,4 @@ class Followup(Base):
     email_id = Column(String, index=True)
     reminder_time = Column(DateTime)
     status = Column(String, default="pending") # pending, completed
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())

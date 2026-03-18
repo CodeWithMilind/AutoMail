@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: Request) {
-  const session = await getServerSession(authOptions) as any;
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
   const { searchParams } = new URL(request.url);
   const pageToken = searchParams.get("pageToken");
   const fetchIdsOnly = searchParams.get("idsOnly") === "true";
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
   }
 
   // Retrieve the user's Google access token from the session
-  const accessToken = session.accessToken;
+  const accessToken = session.provider_token;
 
   if (!accessToken) {
     return NextResponse.json({ error: "Missing Gmail access token" }, { status: 403 });
@@ -72,14 +72,15 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions) as any;
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
   const { emailId, mode } = await request.json();
 
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const accessToken = session.accessToken;
+  const accessToken = session.provider_token;
   if (!accessToken) {
     return NextResponse.json({ error: "Missing Gmail access token" }, { status: 403 });
   }

@@ -6,9 +6,9 @@ from fastapi.responses import RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 from ai_engine import generate_email_reply, generate_ai_summary
-from services.llm_service import generate_ai_analysis, get_settings, save_settings
+from services.llm_service import generate_ai_analysis
 from services.db_service import get_db, create_task, get_tasks, update_task, delete_task, save_analyzed_email, AnalyzedEmail, Task, create_meeting, create_followup, get_meetings, get_pending_followups
-from services.gmail_service import fetch_latest_emails
+from services.gmail_service import GmailService
 from sqlalchemy.orm import Session
 from fastapi import Depends, BackgroundTasks
 from auth import oauth
@@ -24,6 +24,26 @@ load_dotenv()
 app = FastAPI(title="Auto Email AI Assistant Backend")
 
 # --- Utility Functions ---
+
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "settings.json")
+
+def get_settings():
+    if not os.path.exists(SETTINGS_FILE):
+        default_settings = {
+            "llm_provider": "groq",
+            "groq_api_key": os.getenv("GROQ_API_KEY") or "",
+            "ollama_model": "llama3",
+            "groq_model": "llama3-70b-8192"
+        }
+        save_settings(default_settings)
+        return default_settings
+    
+    with open(SETTINGS_FILE, "r") as f:
+        return json.load(f)
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=4)
 
 def decode_base64_url(data):
     if not data: return ""
@@ -400,11 +420,13 @@ async def fetch_followups(db: Session = Depends(get_db)):
     return get_pending_followups(db)
 
 @app.get("/api/emails")
-async def get_emails_api(limit: int = 10, db: Session = Depends(get_db)):
+async def get_emails_api(request: Request, limit: int = 10, db: Session = Depends(get_db)):
     """
     Fetch latest emails from Gmail and enrich with analysis data from DB.
     """
-    emails, error = fetch_latest_emails(limit=limit)
+    access_token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    gmail_service = GmailService(access_token=access_token)
+    emails, error = gmail_service.fetch_latest_emails(limit=limit)
     if error == "gmail_auth_required":
         return {"error": "gmail_auth_required"}
     if error:
@@ -645,6 +667,115 @@ async def generate_email(request: EmailRequest):
         raise HTTPException(status_code=500, detail=reply)
     
     return EmailResponse(reply=reply)
+
+@app.post("/api/analyze-tasks")
+async def analyze_tasks_endpoint(db: Session = Depends(get_db)):
+    """
+    AI analysis of all pending/approved tasks:
+    - Priority scoring (1-10)
+    - Smart categorization & tagging
+    - Suggested next actions
+    Returns enriched task analysis JSON.
+    """
+    tasks = get_tasks(db)
+    if not tasks:
+        return {"analysis": [], "summary": {"total": 0, "critical": 0, "categories": {}}}
+
+    tasks_text = ""
+    for t in tasks:
+        tasks_text += f"[ID:{t.id}] Title: {t.title}\n"
+        if t.description:
+            tasks_text += f"  Description: {t.description}\n"
+        tasks_text += f"  Priority: {t.priority}, Status: {t.status}\n"
+        if t.due_date:
+            tasks_text += f"  Due: {t.due_date.strftime('%Y-%m-%d')}\n"
+        if t.email_sender:
+            tasks_text += f"  From: {t.email_sender}\n"
+        tasks_text += "\n"
+
+    prompt = f"""You are an AI executive assistant. Analyze the following tasks and return a JSON object.
+
+Tasks:
+{tasks_text}
+
+Return ONLY this JSON structure (no markdown, no explanation):
+{{
+  "analysis": [
+    {{
+      "id": <task_id_as_integer>,
+      "priority_score": <integer 1-10, 10 = most critical>,
+      "urgency": "critical|high|medium|low",
+      "category": "one of: Communication, Development, Review, Planning, Research, Finance, Operations, HR, Legal, Other",
+      "tags": ["tag1", "tag2"],
+      "suggested_action": "Specific, actionable next step for this task",
+      "estimated_effort": "15min|30min|1hr|2hr|half-day|full-day",
+      "risk_if_delayed": "Brief description of what happens if this is not done soon"
+    }}
+  ],
+  "summary": {{
+    "total": <count>,
+    "critical": <count of priority_score >= 8>,
+    "categories": {{"Communication": <count>, "Development": <count>}},
+    "top_recommendation": "One key insight or overall recommendation for the user's workload"
+  }}
+}}"""
+
+    settings = get_settings()
+    provider = settings.get("llm_provider", "groq")
+    result = None
+
+    try:
+        if provider == "groq":
+            from groq import Groq
+            api_key = settings.get("groq_api_key") or os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise ValueError("GROQ_API_KEY not set")
+            client = Groq(api_key=api_key)
+            response = client.chat.completions.create(
+                model=settings.get("groq_model", "llama3-70b-8192"),
+                messages=[
+                    {"role": "system", "content": "You are an AI executive assistant. Return ONLY valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                timeout=20.0
+            )
+            result = json.loads(response.choices[0].message.content)
+        else:
+            import ollama
+            response = ollama.chat(
+                model=settings.get("ollama_model", "llama3"),
+                messages=[{"role": "user", "content": prompt}]
+            )
+            content = response["message"]["content"]
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            result = json.loads(content[start:end])
+    except Exception as e:
+        print(f"Task analysis error: {e}")
+        result = {
+            "analysis": [
+                {
+                    "id": t.id,
+                    "priority_score": 7 if t.priority == "high" else (5 if t.priority == "medium" else 3),
+                    "urgency": t.priority if t.priority in ["high", "medium", "low"] else "medium",
+                    "category": "Operations",
+                    "tags": [t.priority, t.status],
+                    "suggested_action": f"Review and action: {t.title}",
+                    "estimated_effort": "30min",
+                    "risk_if_delayed": "Task may become overdue"
+                } for t in tasks
+            ],
+            "summary": {
+                "total": len(tasks),
+                "critical": sum(1 for t in tasks if t.priority == "high"),
+                "categories": {"Operations": len(tasks)},
+                "top_recommendation": "Review and prioritize your pending tasks."
+            }
+        }
+
+    return result
+
 
 if __name__ == "__main__":
     import uvicorn

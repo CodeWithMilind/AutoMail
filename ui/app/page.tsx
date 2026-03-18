@@ -1,12 +1,27 @@
-import { LoginButton } from "@/components/auth/login-button";
-import { getServerSession } from "next-auth/next";
-import { redirect } from "next/navigation";
+"use client"
 
-export default async function LoginPage() {
-  const session = await getServerSession();
+import { useAuth } from "@/hooks/useAuth"
+import { LoginButton } from "@/components/auth/login-button"
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
+import { Loader2 } from "lucide-react"
 
-  if (session) {
-    redirect("/dashboard");
+export default function LoginPage() {
+  const { isAuthenticated, loading } = useAuth()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push("/dashboard")
+    }
+  }, [isAuthenticated, router])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
   }
 
   return (
@@ -25,5 +40,5 @@ export default async function LoginPage() {
         </div>
       </div>
     </div>
-  );
+  )
 }

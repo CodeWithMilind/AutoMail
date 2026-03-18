@@ -1,0 +1,700 @@
+{
+  "name": "Google Sheets Task Reminder Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "id": "283d35e9-ff26-4fee-a2da-7cd90e64d0a8",
+      "name": "Every 5 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU",
+          "mode": "list",
+          "cachedResultName": "Emails Sync data",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "f263a5c5-7051-4e28-a306-820f81d8abf3",
+      "name": "Fetch All Tasks",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        464,
+        400
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "A1StbuJf6gZHrHDh",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "pending",
+              "id": "f45c7de0-5ff5-4781-b55f-0ca6b627650f"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9afa09bc-19da-4b87-9820-e67078033d38",
+      "name": "Filter Pending Tasks",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        912,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "244d9ff0-6e92-4ad5-adfc-7ecc0205e433",
+              "leftValue": "={{ $json.meeting_time }}",
+              "rightValue": "={{ Date.now() }}",
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            },
+            {
+              "id": "344d9ff0-6e92-4ad5-adfc-7ecc0205e434",
+              "leftValue": "={{ $json.deadline_time }}",
+              "rightValue": "={{ Date.now() }}",
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "b100408b-6352-45f8-97e4-0102720f83f0",
+      "name": "Check Time Arrived",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1136,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.meeting_time }}",
+                    "operator": {
+                      "type": "any",
+                      "operation": "exists"
+                    },
+                    "id": "meeting-exists"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Meeting Exists"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action_required }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "Reply Needed",
+                    "id": "reply-needed"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Reply Needed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action_required }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "Task Required",
+                    "id": "task-required"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Task Required"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action_required }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "FYI",
+                    "id": "fyi"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "FYI"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "866a4e67-576d-4456-ac50-5136e7caf2ab",
+      "name": "Task Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1360,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "primary"
+        },
+        "start": "={{ new Date($json.meeting_time).toISOString() }}",
+        "end": "={{ new Date($json.meeting_time + 3600000).toISOString() }}",
+        "additionalFields": {
+          "attendees": [
+            "={{ $json.sender }}"
+          ],
+          "description": "={{ $json.summary }}",
+          "summary": "={{ $json.subject }}"
+        }
+      },
+      "id": "db97940b-44eb-4eb9-a1db-f67e02756506",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1584,
+        112
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "os18RJzC6VdA3hpV",
+          "name": "Google Calendar OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.sender }}",
+        "subject": "=Re: {{ $json.subject }}",
+        "message": "=<p>Hello,</p><p>This is an automated acknowledgment. Your request is being processed.</p><p><strong>Summary:</strong> {{ $json.summary }}</p><p>Best regards</p>",
+        "options": {}
+      },
+      "id": "e9ddf80a-c88c-4264-ac51-9954ea8333fc",
+      "name": "Send Gmail Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1808,
+        304
+      ],
+      "webhookId": "cab76aff-800d-47b5-9499-b9689f69e680",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "X5zvgssvQCjEbcZF",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "folderId": "1vRzGgVEsbaJS8z07srJeUytwSUhroS2w",
+        "title": "=Task: {{ $json.subject }}"
+      },
+      "id": "86407da6-b6a9-41af-a354-a8f943273816",
+      "name": "Create Google Doc",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        496
+      ],
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "tJlmZvZEqSIAWRm1",
+          "name": "Google Docs OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#general"
+        },
+        "text": "=📋 *FYI Task*\n\n*Subject:* {{ $json.subject }}\n*Summary:* {{ $json.summary }}\n*Priority:* {{ $json.priority }}\n*Deadline:* {{ $json.deadline }}",
+        "otherOptions": {}
+      },
+      "id": "fb050c41-dca6-4b23-b44e-cca738e036b3",
+      "name": "Send Slack Message",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.4,
+      "position": [
+        1808,
+        688
+      ],
+      "webhookId": "35c6314e-1e0f-4ad1-805e-3e1455089644",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "m1ZON7TMZAmdtSdp",
+          "name": "Slack OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function parseNaturalDate(text) {\n  if (!text) return null;\n\n  const now = new Date();\n  text = text.toLowerCase();\n\n  const timeMatch = text.match(/(\\d{1,2})(?::(\\d{2}))?\\s?(am|pm)?/);\n\n  let hour = 12;\n  let minute = 0;\n\n  if (timeMatch) {\n    hour = parseInt(timeMatch[1]);\n    minute = timeMatch[2] ? parseInt(timeMatch[2]) : 0;\n\n    if (timeMatch[3] === \"pm\" && hour !== 12) hour += 12;\n    if (timeMatch[3] === \"am\" && hour === 12) hour = 0;\n  }\n\n  if (text.includes(\"tomorrow\")) {\n    const d = new Date();\n    d.setDate(d.getDate() + 1);\n    d.setHours(hour, minute, 0, 0);\n    return d.getTime();\n  }\n\n  if (text.includes(\"today\")) {\n    const d = new Date();\n    d.setHours(hour, minute, 0, 0);\n    return d.getTime();\n  }\n\n  const days = [\"sunday\",\"monday\",\"tuesday\",\"wednesday\",\"thursday\",\"friday\",\"saturday\"];\n\n  for (let i = 0; i < days.length; i++) {\n    if (text.includes(days[i])) {\n      const d = new Date();\n      const diff = (i - d.getDay() + 7) % 7 || 7;\n      d.setDate(d.getDate() + diff);\n      d.setHours(hour, minute, 0, 0);\n      return d.getTime();\n    }\n  }\n\n  const parsed = new Date(text);\n  if (!isNaN(parsed)) return parsed.getTime();\n\n  return null;\n}\n\nconst meeting_time = parseNaturalDate($json.meeting);\nconst deadline_time = parseNaturalDate($json.deadline);\n\nreturn {\n  ...$json,\n  meeting_time,\n  deadline_time\n};"
+      },
+      "id": "c82554eb-c0e2-4709-98f5-ef886ac3246e",
+      "name": "Normalize Dates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU",
+          "mode": "list",
+          "cachedResultName": "Emails Sync data",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1264216240,
+          "mode": "list",
+          "cachedResultName": "Sheet2",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU/edit#gid=1264216240"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "start",
+              "displayName": "start",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "end",
+              "displayName": "end",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "attendees",
+              "displayName": "attendees",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "creator",
+              "displayName": "creator",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "organizer",
+              "displayName": "organizer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "created",
+              "displayName": "created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated",
+              "displayName": "updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "eventType",
+              "displayName": "eventType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "htmlLink",
+              "displayName": "htmlLink",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "a639ed4f-de0f-4286-99cd-605cf618f7da",
+      "name": "Update Task Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2032,
+        400
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "A1StbuJf6gZHrHDh",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const event = item.json;\n\n  return {\n    json: {\n      id: event.id,\n      status: event.status,\n      start: event.start?.dateTime || \"\",\n      end: event.end?.dateTime || \"\",\n      attendees: event.attendees?.map(a => a.email).join(\", \"),\n      creator: event.creator?.email || \"\",\n      organizer: event.organizer?.email || \"\",\n      description: event.summary || \"\",\n      created: event.created || \"\",\n      updated: event.updated || \"\",\n      eventType: event.eventType || \"\",\n      htmlLink: event.htmlLink || \"\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        112
+      ],
+      "id": "68698576-0c41-49c8-8589-0be4ee84b0b9",
+      "name": "Code"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Fetch All Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch All Tasks": {
+      "main": [
+        [
+          {
+            "node": "Normalize Dates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Pending Tasks": {
+      "main": [
+        [
+          {
+            "node": "Check Time Arrived",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Time Arrived": {
+      "main": [
+        [
+          {
+            "node": "Task Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Task Router": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Gmail Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Google Doc",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Gmail Reply": {
+      "main": [
+        [
+          {
+            "node": "Update Task Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Google Doc": {
+      "main": [
+        [
+          {
+            "node": "Update Task Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Dates": {
+      "main": [
+        [
+          {
+            "node": "Filter Pending Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Update Task Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Update Task Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "70575236-35c6-47d2-9bdb-08c6aff97ac7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9507eb6ca8b5a6df952cc3108ea983fce5ed76fda38873af8c3f910b396e39d4"
+  },
+  "id": "7M1QywbOgMoRtnvn",
+  "tags": []
+}

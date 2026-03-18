@@ -1,67 +1,20 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
 import { Header } from "@/components/dashboard/header"
 import { EmailList } from "@/components/EmailList"
-import { Loader2, Mail, AlertCircle, RefreshCw } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Mail, AlertCircle, RefreshCw, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useEmails, useSync } from "@/services/api"
+import { cn } from "@/lib/utils"
 
 export default function EmailsPage() {
-  const [emails, setEmails] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { data: emails = [], isLoading, error, refetch } = useEmails();
+  const syncMutation = useSync();
 
-  const loadEmails = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-
-      const res = await fetch("/api/emails", { cache: "no-cache" })
-
-      if (!res.ok) {
-        let message = `Server error (${res.status})`
-        try {
-          const errData = await res.json()
-          message = errData.error || message
-        } catch {}
-        throw new Error(message)
-      }
-
-      const data = await res.json()
-
-      if (!Array.isArray(data)) {
-        if (data?.error) throw new Error(data.error)
-        throw new Error("Unexpected response from server")
-      }
-
-      setEmails(data)
-    } catch (err: any) {
-      console.error("Email fetch failed:", err)
-      setError(err.message || "Failed to load emails")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    loadEmails()
-  }, [loadEmails])
-
-  if (loading) {
-    return (
-      <div className="flex flex-col min-h-screen">
-        <Header title="Emails" />
-        <div className="flex flex-1 items-center justify-center h-[400px]">
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground font-medium">
-              Loading emails...
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const handleSync = () => {
+    syncMutation.mutate();
+  };
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -79,16 +32,31 @@ export default function EmailsPage() {
               </p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadEmails}
-            disabled={loading}
-            className="gap-2"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isLoading || syncMutation.isPending}
+              className="gap-2"
+            >
+              <RefreshCw className={cn("h-4 w-4", isLoading && !syncMutation.isPending && "animate-spin")} />
+              Refresh
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleSync}
+              disabled={syncMutation.isPending}
+              className="gap-2"
+            >
+              {syncMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Sync Now
+            </Button>
+          </div>
         </div>
 
         {error ? (
@@ -98,16 +66,9 @@ export default function EmailsPage() {
               <p className="text-sm font-semibold text-destructive">
                 Error Loading Emails
               </p>
-              <p className="text-xs text-destructive/80 max-w-sm">{error}</p>
-              {(error.includes("token") ||
-                error.includes("sign in") ||
-                error.includes("401")) && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Try signing out and signing back in to refresh Gmail access.
-                </p>
-              )}
+              <p className="text-xs text-destructive/80 max-w-sm">{(error as Error).message}</p>
               <Button
-                onClick={loadEmails}
+                onClick={() => refetch()}
                 variant="outline"
                 size="sm"
                 className="mt-3 gap-2"
@@ -116,6 +77,12 @@ export default function EmailsPage() {
                 Retry
               </Button>
             </div>
+          </div>
+        ) : isLoading ? (
+          <div className="space-y-4">
+            {Array(5).fill(0).map((_, i) => (
+              <Skeleton key={i} className="h-16 w-full rounded-xl" />
+            ))}
           </div>
         ) : emails.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center">
@@ -131,7 +98,7 @@ export default function EmailsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={loadEmails}
+              onClick={() => refetch()}
               className="mt-4 gap-2"
             >
               <RefreshCw className="h-3 w-3" />

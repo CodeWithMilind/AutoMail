@@ -1,13 +1,12 @@
 import "server-only"
 import { NextResponse } from "next/server"
 import { google } from "googleapis"
-import { getServerSession } from "next-auth/next"
-import { authOptions } from "@/lib/auth"
+import { createClient } from "@/lib/supabase/server"
 
 export async function GET() {
   try {
-    // 1. Safely handle authentication
-    const session = await getServerSession(authOptions)
+    const supabase = await createClient()
+    const { data: { session } } = await supabase.auth.getSession()
     
     if (!session) {
       return NextResponse.json(
@@ -16,7 +15,7 @@ export async function GET() {
       )
     }
 
-    const accessToken = (session as any).accessToken
+    const accessToken = session.provider_token
     if (!accessToken) {
       return NextResponse.json(
         { error: "Gmail access token missing. Sign out and sign in again." },

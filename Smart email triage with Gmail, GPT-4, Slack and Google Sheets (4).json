@@ -1,0 +1,955 @@
+{
+  "name": "Smart email triage with Gmail, GPT-4, Slack and Google Sheets",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ]
+        },
+        "options": {}
+      },
+      "id": "caea6cf6-1ee7-4a81-8d5e-34ee91c80d80",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "position": [
+        -1792,
+        496
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "X5zvgssvQCjEbcZF",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const emailData = items[0].json;\n\n// Extract sender safely\nlet sender = \"Unknown\";\nif (emailData.from?.value?.[0]?.address) {\n  sender = emailData.from.value[0].address;\n} else if (emailData.from) {\n  sender = emailData.from;\n}\n\n// Extract subject safely\nlet subject = \"Unknown\";\nif (emailData.subject) {\n  subject = emailData.subject;\n} else if (emailData.headers) {\n  const subjectHeader = emailData.headers.find(h => h.name === \"Subject\");\n  if (subjectHeader) subject = subjectHeader.value;\n}\n\n// Extract email body\nconst bodyText = emailData.textPlain || emailData.text || \"\";\nconst bodyHtml = emailData.html || \"\";\n\n// Extract links\nconst linkRegex = /https?:\\/\\/[^\\s<>\"]+/gi;\nconst textLinks = bodyText.match(linkRegex) || [];\nconst htmlLinks = bodyHtml.match(linkRegex) || [];\nconst links = [...new Set([...textLinks, ...htmlLinks])];\n\n// Attachments\nconst attachments = emailData.attachments || [];\nconst hasAttachments = attachments.length > 0;\n\n// Clean body for AI analysis\nconst bodyForAnalysis = (bodyText || bodyHtml.replace(/<[^>]*>/g, \" \"))\n  .replace(/\\s+/g, \" \")\n  .trim()\n  .substring(0, 1200);\n\nreturn [\n{\njson: {\nsender,\nsubject,\nbodyText,\nbodyHtml,\nbodyForAnalysis,\nattachments,\nhasAttachments,\nlinks,\nmessageId: emailData.id || \"\",\nthreadId: emailData.threadId || \"\",\nreceivedDate: emailData.date || new Date().toISOString()\n}\n}\n];"
+      },
+      "id": "278c3146-8847-454b-9968-4343de6d8b69",
+      "name": "Extract Email Data",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -1584,
+        496
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 1,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "has-attachments",
+              "operator": {
+                "type": "boolean",
+                "operation": "equal"
+              },
+              "leftValue": "={{ $json.hasAttachments }}",
+              "rightValue": true
+            },
+            {
+              "id": "bdea6274-0c71-4d15-b97d-8cd325208efe",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.hasAttachments }}",
+              "rightValue": 0
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aa32825b-a6ae-48f1-95ba-5d7dce37d584",
+      "name": "Check Attachments",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        -1424,
+        496
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const emailData = items[0].json;\nlet attachmentText = '';\nconst processedAttachments = [];\n\nif (emailData.attachments && emailData.attachments.length > 0) {\n  for (const attachment of emailData.attachments) {\n    const processed = {\n      filename: attachment.filename || 'unknown',\n      contentType: attachment.contentType || 'unknown',\n      size: attachment.size || 0,\n      textExtracted: false,\n      extractedText: ''\n    };\n    \n    if (attachment.contentType) {\n      if (attachment.contentType.includes('text/')) {\n        processed.extractedText = 'Text file content available';\n        processed.textExtracted = true;\n      } else if (attachment.contentType.includes('pdf')) {\n        processed.extractedText = 'PDF attachment detected - text extraction requires additional service';\n        processed.textExtracted = false;\n      } else if (attachment.contentType.includes('word') || attachment.contentType.includes('document')) {\n        processed.extractedText = 'Word document detected - text extraction requires additional service';\n        processed.textExtracted = false;\n      }\n    }\n    \n    processedAttachments.push(processed);\n    \n    if (processed.textExtracted) {\n      attachmentText += `\\n[Attachment: ${processed.filename}] ${processed.extractedText}`;\n    }\n  }\n}\n\nconst combinedContent = emailData.bodyForAnalysis + attachmentText;\n\nreturn [{\n  json: {\n    ...emailData,\n    processedAttachments,\n    combinedContent: combinedContent.substring(0, 1500),\n    attachmentProcessingComplete: true\n  }\n}];"
+      },
+      "id": "1ec09e22-2e83-4bd2-85f3-cc308cf8c5a0",
+      "name": "Process Attachments",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -1232,
+        400
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const emailData = items[0].json;\n\nreturn [{\n  json: {\n    ...emailData,\n    processedAttachments: [],\n    combinedContent: emailData.bodyForAnalysis,\n    attachmentProcessingComplete: true\n  }\n}];"
+      },
+      "id": "7bed546d-98c5-4f6e-a9fe-43e9b7bba84b",
+      "name": "Skip Attachments",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -1232,
+        592
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiData = items[0].json;\nconst aiResponse = aiData.output || aiData;\n\nconst validActions = [\"Reply Needed\", \"Review Attachment\", \"Task Required\", \"Meeting Scheduled\", \"For Your Information\"];\nconst callToAction = aiResponse.callToAction || aiResponse.action_required || \"For Your Information\";\n\nconst emailData = $(\"Extract Email Data\").first().json;\n\nreturn [{\njson: {\nsender: emailData.sender,\nsubject: emailData.subject,\nbodyForAnalysis: emailData.bodyForAnalysis,\nattachments: emailData.attachments,\nlinks: emailData.links,\nsummary: aiResponse.summary || \"No summary\",\npriority: aiResponse.priority || \"Medium\",\naction_required: validActions.includes(callToAction) ? callToAction : \"For Your Information\",\ntask: aiResponse.task || \"\",\nmeeting: aiResponse.meeting || \"\",\ndeadline: aiResponse.deadline || \"\",\ninsights: aiResponse.insights || \"\",\ntimestamp: new Date().toISOString(),\naiAnalysis: aiResponse\n}\n}];"
+      },
+      "id": "c46995f0-3fca-4444-9a56-e8cebdcd6545",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -624,
+        496
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 1,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "reply-needed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "leftValue": "={{ $(\"Parse AI Response\").item.json.aiAnalysis.callToAction }}",
+              "rightValue": "Reply Needed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "71e8e379-591a-45fa-a6b9-cf7bff59a64a",
+      "name": "Route Urgent",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        -96,
+        496
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 1,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "review-attachment",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "leftValue": "={{ $(\"Parse AI Response\").item.json.aiAnalysis.callToAction }}",
+              "rightValue": "Review Attachment"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4162788d-2201-4724-be16-636a246170b6",
+      "name": "Route Attachments",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        96,
+        592
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0AKS3G4AAZ",
+          "mode": "list",
+          "cachedResultName": "reply-needed"
+        },
+        "text": "=📩 AutoMail Alert\n\nFrom: {{ $('Extract Email Data').item.json.sender }}\nSubject: {{ $('Extract Email Data').item.json.subject }}\n\nSummary:\n{{ $json.summary }}\n\nPriority: {{ $json.priority }}\n\nAction Required:\n{{ $json.action_required }}\n\nTask:\n{{ $json.task }}\n\nMeeting:\n{{ $json.meeting }}\n\nDeadline:\n{{ $json.deadline }}",
+        "otherOptions": {}
+      },
+      "id": "e650fad4-7e92-45da-b437-26f7fe5e0329",
+      "name": "Slack Urgent",
+      "type": "n8n-nodes-base.slack",
+      "position": [
+        96,
+        400
+      ],
+      "webhookId": "4e77062d-a1d4-46ca-8d70-1a3bf3beaa71",
+      "typeVersion": 2,
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "m1ZON7TMZAmdtSdp",
+          "name": "Slack OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "C09G3QM1NUT",
+          "cachedResultName": "review-needed"
+        },
+        "text": "=📩 AutoMail Alert\n\nFrom: {{ $('Extract Email Data').item.json.sender }}\nSubject: {{ $('Extract Email Data').item.json.subject }}\n\nSummary:\n{{ $json.aiAnalysis.summary }}\n\nPriority: {{ $json.aiAnalysis.priority }}\n\nAction Required:\n{{ $json.aiAnalysis.callToAction }}\n\nInsights:\n{{ $json.aiAnalysis.insights }}",
+        "otherOptions": {}
+      },
+      "id": "f532db69-95fc-4695-858d-d1660acc4a23",
+      "name": "Slack Attachments",
+      "type": "n8n-nodes-base.slack",
+      "position": [
+        320,
+        496
+      ],
+      "webhookId": "9e25a820-c2f1-4639-91ad-aa55a1a2d976",
+      "typeVersion": 2,
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "m1ZON7TMZAmdtSdp",
+          "name": "Slack OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0AL8HR1ARF",
+          "mode": "list",
+          "cachedResultName": "general-information"
+        },
+        "text": "=📩 AutoMail Alert\n\nFrom: {{ $('Extract Email Data').item.json.sender }}\nSubject: {{ $('Extract Email Data').item.json.subject }}\n\nSummary:\n{{ $json.aiAnalysis.summary }}\n\nPriority: {{ $json.aiAnalysis.priority }}\n\nAction Required:\n{{ $json.aiAnalysis.callToAction }}\n\nInsights:\n{{ $json.aiAnalysis.insights }}",
+        "otherOptions": {}
+      },
+      "id": "0df27544-00ac-4fae-9a2a-efae3254e2a8",
+      "name": "Slack General",
+      "type": "n8n-nodes-base.slack",
+      "position": [
+        320,
+        688
+      ],
+      "webhookId": "4f99f77b-98ab-4dd9-b6c2-c4284c6ebfbe",
+      "typeVersion": 2,
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "uMPI3wYKhU5B3TMm",
+          "name": "Slack OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n \"summary\": \"string\",\n \"priority\": \"string\",\n \"action_required\": \"string\",\n \"task\": \"string\",\n \"meeting\": \"string\",\n \"deadline\": \"string\",\n \"links\": [\"string\"],\n \"attachments\": [\"string\"]\n}"
+      },
+      "id": "7413bf39-56a1-4a39-b0f4-dce6c51c193b",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "position": [
+        -736,
+        720
+      ],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "\"json_review\"",
+        "contextWindowLength": 7
+      },
+      "id": "e05fc5ba-8397-4d2e-9ae7-be1ac520911a",
+      "name": "Simple Memory1",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "position": [
+        -880,
+        720
+      ],
+      "typeVersion": 1.3
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.subject }} \n{{ $json.bodyForAnalysis }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are AutoMail AI, an intelligent email assistant.\n\nAnalyze incoming emails and return structured JSON with these fields:\n\nsummary: short clear summary of the email\npriority: High, Medium, or Low depending on urgency\n\ncallToAction: one of the following values\n- Reply Needed\n- Review Attachment\n- Task Required\n- Meeting Scheduled\n- For Your Information\n\ntask: extract any task mentioned in the email\nmeeting: extract meeting datetime if present\ndeadline: extract any deadline mentioned\ninsights: key important information\n\nIMPORTANT DATE FORMAT RULE:\n\nAlways return meeting and deadline in ISO 8601 datetime format.\n\nFormat:\nYYYY-MM-DDTHH:MM:SS\n\nExample:\n2026-03-14T15:00:00\n2026-03-16T10:30:00\n\nIf the email says:\n\"Tomorrow at 3 PM\"\nconvert it to a real datetime like:\n2026-03-15T15:00:00\n\nIf the email says:\n\"March 16\"\nconvert it to:\n2026-03-16T00:00:00\n\nNever return natural language values like:\nTomorrow\nTomorrow at 3 PM\nMarch 16th\n\nIf no meeting or deadline exists, return an empty string \"\".\n\nReturn valid JSON only.\n\nExample output:\n\n{\n  \"summary\": \"Meeting scheduled to review AutoMail project progress\",\n  \"priority\": \"High\",\n  \"callToAction\": \"Reply Needed\",\n  \"task\": \"Prepare AutoMail project update\",\n  \"meeting\": \"2026-03-15T15:00:00\",\n  \"deadline\": \"\",\n  \"insights\": \"Discussion about automation pipeline improvements\"\n}"
+        }
+      },
+      "id": "7a64c8c3-1896-4fcd-84ea-372ade04e5b6",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        -960,
+        496
+      ],
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU",
+          "mode": "list",
+          "cachedResultName": "Emails Sync data",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1j4ZSyeXs4xckF_HUAxvu66DL0b_xMFuMcRDCPglLANU/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "sender",
+              "displayName": "sender",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "priority",
+              "displayName": "priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "action_required",
+              "displayName": "action_required",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "task",
+              "displayName": "task",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "meeting",
+              "displayName": "meeting",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "deadline",
+              "displayName": "deadline",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "slack_channel",
+              "displayName": "slack_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "has_attachments",
+              "displayName": "has_attachments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ai_summary",
+              "displayName": "ai_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "49048153-0b90-4aff-955a-ef4df2916ee9",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        -256,
+        496
+      ],
+      "typeVersion": 4,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "A1StbuJf6gZHrHDh",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = items[0].json;\n\nreturn [\n{\njson: {\ntimestamp: new Date().toISOString(),\nsender: email.sender || email.from || \"Unknown\",\nsubject: email.subject || \"Unknown\",\nsummary: email.summary || \"No summary\",\npriority: email.priority || \"Medium\",\nstatus: \"Pending\",\naction_required: email.action_required || \"FYI\",\ntask: email.task || \"\",\nmeeting: email.meeting || \"\",\ndeadline: email.deadline || \"\",\nslack_channel: \"#general\",\nhas_attachments: email.attachments?.length > 0,\nai_summary: email.summary || \"No summary\"\n}\n}\n];"
+      },
+      "id": "523c1921-a18e-4159-b3e1-58157761f706",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -416,
+        496
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "content": "## 🔧 Extract Email Data\nProcesses raw Gmail data and extracts key information.\n\n**Details:**\n- Extracts sender, subject, body text/HTML\n- Identifies and extracts all links from email content\n- Advanced attachment detection using multiple methods\n- Checks for attachment keywords in email text\n- Prepares clean data structure for AI analysis\n",
+        "height": 400
+      },
+      "id": "4acb8a8e-9338-4586-8028-90dc7e3dde83",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1696,
+        32
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 📧 Gmail Trigger\nMonitors your **Gmail inbox** for new incoming emails.\n\n**Details:**\n- Polls Gmail every minute for new messages\n- Uses OAuth2 authentication\n- Triggers the workflow when new emails arrive\n- Provides raw email data to the next node.\n",
+        "height": 304
+      },
+      "id": "4801c1b2-48b2-4996-942a-0ba958c3077f",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2080,
+        416
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🎯 AI Agent\nCore AI engine that analyzes email content and generates insights.\n\n**Details:**\n- Analyzes subject, body text, HTML, and links\n- Categorizes emails by urgency and action required\n- Extracts key insights, deadlines, and important notes\n- Uses structured output parser for consistent JSON responses\n- Connected to OpenAI model and memory for context",
+        "height": 400
+      },
+      "id": "fe45d7a9-5522-4a09-ad83-e7e771107f34",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -960,
+        0
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## ⏭️ Skip Attachments\nBypass attachment processing for emails without attachments.\n\n**Details:**\n- Sets empty processedAttachments array\n- Uses only email body content for analysis\n- Maintains data structure consistency\n- Flags attachment processing as complete",
+        "height": 336
+      },
+      "id": "b13f384f-5505-46c2-a521-04edca64898f",
+      "name": "Sticky Note3",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1328,
+        992
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 📎 Process Attachments\nAnalyzes and processes email attachments when present.\n\n**Details:**\n- Identifies attachment types (text, PDF, Word)\n- Extracts metadata (filename, size, content type)\n- Combines attachment info with email content\n- Prepares enhanced content for AI analysis\n- Limits combined content to 4000 characters",
+        "height": 400
+      },
+      "id": "b828348a-80e8-454f-b7e6-e2b361d45f4c",
+      "name": "Sticky Note4",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1328,
+        -80
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## ❓ Check Attachments\nDecision node that routes emails based on attachment presence.\n\n**Details:**\n- Evaluates if email has attachments\n- Routes to 'Process Attachments' if attachments found\n- Routes to 'Skip Attachments' if no attachments\n- Uses boolean logic for attachment detection",
+        "height": 368
+      },
+      "id": "7c2cbf9a-28a5-4f85-95a8-fc69de7e1342",
+      "name": "Sticky Note5",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1648,
+        864
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🔧 Format Data for Sheets\nPrepares and formats data for Google Sheets logging.\n\n**Details:**\n- Extracts essential information from Slack messages\n- Parses sender, subject, AI summary, and action required\n- Determines which Slack channel was used\n- Creates clean, structured data for spreadsheet\n- Limits text fields to appropriate lengths for sheets",
+        "height": 432
+      },
+      "id": "817f68ae-1b24-4c21-80c3-e077812589f4",
+      "name": "Sticky Note6",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        320,
+        -32
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 📎 Slack Attachments\nSends attachment email notifications to review channel.\n\n**Details:**\n- Posts to #review-needed channel\n- Includes attachment indicator emoji\n- Shows extracted links from email\n- Provides AI summary and insights\n- Prompts for attachment review action\n",
+        "height": 368
+      },
+      "id": "e8fb9c8d-c329-4709-98b8-c931954f651e",
+      "name": "Sticky Note7",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        480,
+        944
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🚨 Slack Urgent\nSends urgent email notifications to priority Slack channel.\n\n**Details:**\n- Posts to #reply-needed channel\n- Includes sender, subject, AI summary\n- Highlights urgent nature with emoji\n- Contains action required and insights\n- Formatted for immediate attention",
+        "height": 336
+      },
+      "id": "b069269c-c1a9-4892-9e2f-881523fce15c",
+      "name": "Sticky Note8",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 📎 Slack Attachments\nSends attachment email notifications to review channel.\n\n**Details:**\n- Posts to #review-needed channel\n- Includes attachment indicator emoji\n- Shows extracted links from email\n- Provides AI summary and insights\n- Prompts for attachment review action",
+        "height": 368
+      },
+      "id": "3ddb75db-eb55-4953-b634-b26b9e7da7aa",
+      "name": "Sticky Note9",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        128,
+        992
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 📎 Route Attachments\nRoutes emails with attachments that need review.\n\n**Details:**\n- Checks if callToAction equals 'Review Attachment'\n- Sends attachment emails to dedicated Slack channel\n- Routes informational emails to general channel\n- Second-level priority routing decision",
+        "height": 352
+      },
+      "id": "144e4edd-db4e-434f-b864-cd44abbfe087",
+      "name": "Sticky Note10",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -240,
+        976
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🚨 Route Urgent\nRoutes urgent emails that require immediate reply.\n\n**Details:**\n- Checks if callToAction equals 'Reply Needed'\n- Sends urgent emails to dedicated Slack channel\n- Routes non-urgent emails to attachment check\n- First-level priority routing decision",
+        "height": 304
+      },
+      "id": "ca8e7714-93f5-42ff-bc0a-005c9a37bd8b",
+      "name": "Sticky Note11",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -320,
+        64
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🧠 Parse AI Response\nProcesses and validates AI analysis results.\n\n**Details:**\n- Handles multiple AI response formats\n- Extracts summary, callToAction, and insights\n- Validates callToAction values (Reply Needed, Review Attachment, For Your Information)\n- Provides fallback data if AI parsing fails\n- Combines AI results with original email data",
+        "height": 416
+      },
+      "id": "280c45d8-8928-4b54-a68a-2b59bb908faf",
+      "name": "Sticky Note12",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -608,
+        -80
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 📊 Log to Google Sheets\nRecords all processed emails in a Google Sheets database.\n\n**Details:**\n- Appends/updates email data in centralized spreadsheet\n- Maintains historical record of all processed emails\n- Uses OAuth2 authentication with Google Sheets API\n- Auto-maps input data to sheet columns\n- Provides audit trail and analytics capability",
+        "height": 368
+      },
+      "id": "ddb6de2f-4239-4ecc-bc6c-3a5e5ebbef65",
+      "name": "Sticky Note13",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        816,
+        960
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🧠 Simple Memory\nProvides conversation memory for AI agent consistency.\n\n**Details:**\n- Maintains context across email analyses\n- Uses 7-message sliding window\n- Custom session key for email processing\n- Helps AI learn patterns and improve responses",
+        "height": 320
+      },
+      "id": "cd2054cc-292e-4936-ae6c-f713d0b52af9",
+      "name": "Sticky Note15",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -848,
+        1024
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "content": "## 🏗️ Structured Output Parser\nDefines the expected JSON structure for AI responses.\n\n**Details:**\n- Enforces consistent AI output format\n- Specifies required fields (summary, callToAction, insights)\n- Validates callToAction options\n- Ensures structured data for downstream processing",
+        "height": 352
+      },
+      "id": "b95f73e4-df86-4c0f-81ef-e2b9cc379e87",
+      "name": "Sticky Note16",
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -544,
+        944
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -1024,
+        720
+      ],
+      "id": "f6de8158-2d0a-4c92-950b-0b973814c237",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "bg66mCKt4ymg9fBi",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Urgent": {
+      "main": [
+        [
+          {
+            "node": "Slack Urgent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Urgent": {
+      "main": [
+        []
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack General": {
+      "main": [
+        []
+      ]
+    },
+    "Simple Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Attachments": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Attachments": {
+      "main": [
+        [
+          {
+            "node": "Process Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Attachments": {
+      "main": [
+        [
+          {
+            "node": "Slack Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack General",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Attachments": {
+      "main": [
+        []
+      ]
+    },
+    "Extract Email Data": {
+      "main": [
+        [
+          {
+            "node": "Check Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Attachments": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Route Urgent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "0aead736-744f-4d4a-a74a-25c3b6494fda",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9507eb6ca8b5a6df952cc3108ea983fce5ed76fda38873af8c3f910b396e39d4"
+  },
+  "id": "bS6oz0N0SR3tb9tN",
+  "tags": []
+}

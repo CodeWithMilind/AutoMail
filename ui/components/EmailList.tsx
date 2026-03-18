@@ -10,21 +10,9 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { formatDistanceToNow } from "date-fns"
-import { Calendar, CheckSquare, Clock } from "lucide-react"
 import { PriorityBadge } from "./PriorityBadge"
-
-interface Email {
-  id: string
-  sender: string
-  subject: string
-  summary?: string
-  date: string
-  priority: "high" | "medium" | "low"
-  meeting_detected: boolean
-  requires_followup: boolean
-  ai_processed: boolean
-}
+import { Email } from "@/services/api"
+import { Button } from "./ui/button"
 
 interface EmailListProps {
   emails: Email[]
@@ -46,7 +34,7 @@ export function EmailList({
             <TableHead className="text-muted-foreground font-semibold text-xs uppercase tracking-wider">Subject</TableHead>
             <TableHead className="text-muted-foreground font-semibold text-xs uppercase tracking-wider">AI Summary</TableHead>
             <TableHead className="text-muted-foreground font-semibold text-xs uppercase tracking-wider">Priority</TableHead>
-            <TableHead className="text-muted-foreground font-semibold text-xs uppercase tracking-wider text-right">Date</TableHead>
+            <TableHead className="text-muted-foreground font-semibold text-xs uppercase tracking-wider text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -63,26 +51,22 @@ export function EmailList({
                 {email.sender}
               </TableCell>
               <TableCell>
-                <div className="flex items-center gap-2">
-                  {email.subject}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {email.meeting_detected && (
-                      <Calendar className="h-3.5 w-3.5 text-warning" />
-                    )}
-                    {email.requires_followup && (
-                      <Clock className="h-3.5 w-3.5 text-destructive" />
-                    )}
-                  </div>
-                </div>
+                {email.subject}
               </TableCell>
               <TableCell className="max-w-xs truncate text-muted-foreground">
                 {email.summary || "No analysis yet"}
               </TableCell>
               <TableCell>
-                <PriorityBadge priority={email.priority} />
+                <PriorityBadge priority={email.priority.toLowerCase() as any} />
               </TableCell>
-              <TableCell className="text-right text-muted-foreground">
-                {formatDistanceToNow(new Date(email.date), { addSuffix: true })}
+              <TableCell className="text-right">
+                {email.cta ? (
+                  <Button variant="outline" size="sm" className="h-8 text-xs">
+                    {email.cta}
+                  </Button>
+                ) : (
+                  <span className="text-xs text-muted-foreground italic">No action</span>
+                )}
               </TableCell>
             </TableRow>
           ))}
